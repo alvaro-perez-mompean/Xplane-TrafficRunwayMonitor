@@ -42,6 +42,7 @@ void SaveSettings(const PersistedSettings& settings)
     out << "show_raw_metar=" << (settings.show_raw_metar ? 1 : 0) << '\n';
     out << "debug_log_runway_matches=" << (settings.debug_log_runway_matches ? 1 : 0) << '\n';
     out << "pressure_unit=" << settings.pressure_unit << '\n';
+    out << "auto_open_on_startup=" << (settings.auto_open_on_startup ? 1 : 0) << '\n';
 }
 
 std::optional<PersistedSettings> LoadSettings()
@@ -75,6 +76,8 @@ std::optional<PersistedSettings> LoadSettings()
             settings.debug_log_runway_matches = (value == "1");
         } else if (key == "pressure_unit") {
             settings.pressure_unit = std::atoi(value.c_str());
+        } else if (key == "auto_open_on_startup") {
+            settings.auto_open_on_startup = (value == "1");
         }
     }
     return settings;
