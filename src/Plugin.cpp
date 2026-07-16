@@ -364,11 +364,25 @@ void UpdatePinnedEntry(const core::AirportDatabase& db, double lat, double lon,
     g_mainWindow->display.pinned_airport = airport;
 }
 
+// Resolves and stores the full display entry for whichever airport is
+// currently selected in the "NEARBY" combo -- the expensive per-airport work
+// (wind estimate, METAR) only ever runs for that one airport, not every
+// candidate. Shared by the 1Hz UpdateNearbyCandidates cycle below and by
+// HandleNearbySelectionChanged, which calls this the instant the user picks
+// a different airport rather than waiting for the next cycle tick.
+void ResolveSelectedNearbyEntry(const core::AirportDatabase& db, const std::string& icao,
+                                 std::optional<double> distanceNm, double nowSec)
+{
+    const core::Airport* airport = FindAirport(db, icao);
+    const core::AirportEntryInputs inputs = ResolveAirportInputs(icao, airport);
+    g_mainWindow->display.selected_nearby_entry =
+        core::BuildAirportEntry(icao, distanceNm, airport, g_sightingTracker, inputs, nowSec, g_aggregatorConfig);
+    g_mainWindow->display.selected_nearby_airport = airport;
+}
+
 // Keeps the current selection if it's still a valid candidate, else falls
-// back to nearest, then resolves the single selected candidate's full
-// entry -- the expensive per-airport work
-// (scoring, wind estimate, METAR) only ever runs for that one airport, not
-// every candidate, every cycle.
+// back to nearest, then resolves the single selected candidate's full entry
+// via ResolveSelectedNearbyEntry.
 void UpdateNearbyCandidates(const core::AirportDatabase& db, const std::vector<core::NearbyAirport>& nearest,
                              double nowSec)
 {
@@ -399,14 +413,23 @@ void UpdateNearbyCandidates(const core::AirportDatabase& db, const std::vector<c
     display.selected_nearby_airport = nullptr;
     for (const auto& candidate : display.nearby_candidates) {
         if (interaction.selected_nearby_icao.has_value() && candidate.icao == *interaction.selected_nearby_icao) {
-            const core::Airport* airport = FindAirport(db, candidate.icao);
-            const core::AirportEntryInputs inputs = ResolveAirportInputs(candidate.icao, airport);
-            display.selected_nearby_entry = core::BuildAirportEntry(candidate.icao, candidate.distance_nm, airport,
-                                                                      g_sightingTracker, inputs, nowSec, g_aggregatorConfig);
-            display.selected_nearby_airport = airport;
+            ResolveSelectedNearbyEntry(db, candidate.icao, candidate.distance_nm, nowSec);
             break;
         }
     }
+}
+
+// Fired synchronously from MainWindow's on_nearby_selection_changed hook the
+// moment the user picks a different airport in the "NEARBY" combo (see
+// MainWindow.h's InteractionState) -- resolves that one airport's entry
+// immediately, on the same frame, instead of leaving display.selected_nearby_entry
+// showing the previous selection until the next ~1Hz RunAnalysisCycle tick.
+void HandleNearbySelectionChanged(const std::string& icao)
+{
+    const double lat = (g_latitudeRef != nullptr) ? XPLMGetDatad(g_latitudeRef) : 0.0;
+    const double lon = (g_longitudeRef != nullptr) ? XPLMGetDatad(g_longitudeRef) : 0.0;
+    const std::optional<double> distanceNm = core::AirportDistanceNm(g_airportDatabase, icao, lat, lon);
+    ResolveSelectedNearbyEntry(g_airportDatabase, icao, distanceNm, XPLMGetElapsedTime());
 }
 
 // The ~1Hz tick that resolves every input and rebuilds the window's
@@ -528,6 +551,7 @@ PLUGIN_API int XPluginEnable(void)
     const int top = screenTop - 80;
     g_mainWindow = std::make_unique<ui::MainWindow>(left, top, left + ui::kDefaultWindowWidth,
                                                       top - ui::kDefaultWindowHeight);
+    g_mainWindow->interaction.on_nearby_selection_changed = HandleNearbySelectionChanged;
     g_mainWindow->SetVisible(true);
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
