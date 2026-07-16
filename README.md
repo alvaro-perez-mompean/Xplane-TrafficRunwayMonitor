@@ -101,3 +101,7 @@ The build produces `TrafficRunwayMonitor.xpl` under a per-platform folder:
 
 To install, copy the relevant platform folder into
 `<X-Plane 12 install>/Resources/plugins/TrafficRunwayMonitor/<platform>/`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
