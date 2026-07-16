@@ -528,7 +528,7 @@ PLUGIN_API int XPluginEnable(void)
     const int top = screenTop - 80;
     g_mainWindow = std::make_unique<ui::MainWindow>(left, top, left + ui::kDefaultWindowWidth,
                                                       top - ui::kDefaultWindowHeight);
-    g_mainWindow->SetVisible(true);
+    g_mainWindow->SetVisible(false);
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
         ui::Settings& settings = g_mainWindow->settings;
