@@ -1,0 +1,91 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build tests
+        run: cmake --build build --config RelWithDebInfo --target trm_core_tests
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win_x64
+          - os: macos-latest
+            platform: mac_x64
+          - os: ubuntu-latest
+            platform: lin_x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTRM_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo --target TrafficRunwayMonitor
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: TrafficRunwayMonitor-${{ matrix.platform }}
+          path: build/${{ matrix.platform }}/TrafficRunwayMonitor.xpl
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: TrafficRunwayMonitor-*
+          path: artifacts
+
+      - name: Assemble release layout
+        run: |
+          mkdir -p release/TrafficRunwayMonitor/win_x64
+          mkdir -p release/TrafficRunwayMonitor/mac_x64
+          mkdir -p release/TrafficRunwayMonitor/lin_x64
+          cp artifacts/TrafficRunwayMonitor-win_x64/TrafficRunwayMonitor.xpl release/TrafficRunwayMonitor/win_x64/
+          cp artifacts/TrafficRunwayMonitor-mac_x64/TrafficRunwayMonitor.xpl release/TrafficRunwayMonitor/mac_x64/
+          cp artifacts/TrafficRunwayMonitor-lin_x64/TrafficRunwayMonitor.xpl release/TrafficRunwayMonitor/lin_x64/
+          cd release && zip -r "../TrafficRunwayMonitor-${{ github.ref_name }}.zip" TrafficRunwayMonitor
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ github.ref_name }}" --yes || true
+          gh release create "${{ github.ref_name }}" "TrafficRunwayMonitor-${{ github.ref_name }}.zip" \
+            --title "TrafficRunwayMonitor ${{ github.ref_name }}" --generate-notes
