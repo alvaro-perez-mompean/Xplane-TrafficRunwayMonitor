@@ -1,10 +1,7 @@
 # TrafficRunwayMonitor -- native X-Plane plugin
 #
-# Milestone 1 (see PLAN-native-plugin-rewrite.md section 2) confirmed LTAPI
-# bulk-data access works; the milestone-1 probe plugin target below is kept
-# as-is. `trm_core` (section 3) is the pure-logic library -- zero XPLM/SDK
-# dependency, fully unit-tested via tests/ (section 7). ui/ and the rest of
-# sdk/ don't exist yet.
+# `trm_core` is the pure-logic library -- zero XPLM/SDK dependency, fully
+# unit-tested via tests/.
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -16,6 +13,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
+
+# trm_core is a static library linked into TrafficRunwayMonitor, which is
+# itself built as a shared object (.xpl) on every platform -- without PIC,
+# linking the static lib into a shared object fails on Linux with
+# "relocation ... can not be used when making a shared object; recompile
+# with -fPIC". Harmless on Windows/macOS, so set it unconditionally.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(SDK_DIR "${CMAKE_SOURCE_DIR}/third_party/SDK")
 set(LTAPI_DIR "${CMAKE_SOURCE_DIR}/third_party/LTAPI")
@@ -90,10 +94,17 @@ endif()
 
 if(APPLE)
     find_library(CORE_FOUNDATION_LIBRARY CoreFoundation)
-    target_link_libraries(TrafficRunwayMonitor "-framework XPLM" ${CORE_FOUNDATION_LIBRARY})
+    find_library(APPLICATION_SERVICES_LIBRARY ApplicationServices)
+    # The vendored XPLM.framework isn't in any default search location, so
+    # -framework XPLM alone can't find it -- needs an explicit -F path too.
+    # ApplicationServices is required by ImGui's own OSX clipboard functions
+    # (IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS in imconfig.h) -- see
+    # imgui.cpp's own comment on GetClipboardTextFn_DefaultImpl.
+    target_link_libraries(TrafficRunwayMonitor "-F${SDK_DIR}/Libraries/Mac" "-framework XPLM"
+                            ${CORE_FOUNDATION_LIBRARY} ${APPLICATION_SERVICES_LIBRARY})
 endif()
 
-# ui/MainWindow's ImGui + ImgWindow dependency (section 6): the vendored
+# ui/MainWindow's ImGui + ImgWindow dependency: the vendored
 # ImGui v1.78 WIP + ImgWindow snapshot from TwinFan/LiveTraffic -- see
 # ui/MainWindow.h's comment for why this exact pairing, not latest ImGui.
 if(WIN32)
