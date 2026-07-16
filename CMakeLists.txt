@@ -94,12 +94,17 @@ endif()
 
 if(APPLE)
     find_library(CORE_FOUNDATION_LIBRARY CoreFoundation)
+    find_library(APPLICATION_SERVICES_LIBRARY ApplicationServices)
     # The vendored XPLM.framework isn't in any default search location, so
     # -framework XPLM alone can't find it -- needs an explicit -F path too.
-    target_link_libraries(TrafficRunwayMonitor "-F${SDK_DIR}/Libraries/Mac" "-framework XPLM" ${CORE_FOUNDATION_LIBRARY})
+    # ApplicationServices is required by ImGui's own OSX clipboard functions
+    # (IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS in imconfig.h) -- see
+    # imgui.cpp's own comment on GetClipboardTextFn_DefaultImpl.
+    target_link_libraries(TrafficRunwayMonitor "-F${SDK_DIR}/Libraries/Mac" "-framework XPLM"
+                            ${CORE_FOUNDATION_LIBRARY} ${APPLICATION_SERVICES_LIBRARY})
 endif()
 
-# ui/MainWindow's ImGui + ImgWindow dependency (section 6): the vendored
+# ui/MainWindow's ImGui + ImgWindow dependency: the vendored
 # ImGui v1.78 WIP + ImgWindow snapshot from TwinFan/LiveTraffic -- see
 # ui/MainWindow.h's comment for why this exact pairing, not latest ImGui.
 if(WIN32)
