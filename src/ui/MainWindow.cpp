@@ -148,6 +148,9 @@ void MainWindow::RenderSettingsTab()
     }
     ImGui::Spacing();
 
+    ImGui::Checkbox("Open window automatically on startup", &settings.auto_open_on_startup);
+    ImGui::Spacing();
+
     ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
     ImGui::Checkbox("Show raw METAR (debug)", &settings.show_raw_metar);
     ImGui::Checkbox("Log runway matches to Log.txt (debug)", &settings.debug_log_runway_matches);

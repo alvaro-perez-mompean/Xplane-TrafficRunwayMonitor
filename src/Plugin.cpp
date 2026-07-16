@@ -552,7 +552,6 @@ PLUGIN_API int XPluginEnable(void)
     g_mainWindow = std::make_unique<ui::MainWindow>(left, top, left + ui::kDefaultWindowWidth,
                                                       top - ui::kDefaultWindowHeight);
     g_mainWindow->interaction.on_nearby_selection_changed = HandleNearbySelectionChanged;
-    g_mainWindow->SetVisible(true);
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
         ui::Settings& settings = g_mainWindow->settings;
@@ -564,7 +563,10 @@ PLUGIN_API int XPluginEnable(void)
         settings.debug_log_runway_matches = persisted->debug_log_runway_matches;
         settings.pressure_unit =
             persisted->pressure_unit == 1 ? core::PressureUnit::kHpa : core::PressureUnit::kInHg;
+        settings.auto_open_on_startup = persisted->auto_open_on_startup;
     }
+
+    g_mainWindow->SetVisible(g_mainWindow->settings.auto_open_on_startup);
 
     g_pluginMenuContainerItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "Traffic Runway Monitor", nullptr, 0);
     g_pluginMenu = XPLMCreateMenu("Traffic Runway Monitor", XPLMFindPluginsMenu(), g_pluginMenuContainerItem,
@@ -590,6 +592,7 @@ PLUGIN_API void XPluginDisable(void)
         persisted.show_raw_metar = settings.show_raw_metar;
         persisted.debug_log_runway_matches = settings.debug_log_runway_matches;
         persisted.pressure_unit = (settings.pressure_unit == core::PressureUnit::kHpa) ? 1 : 0;
+        persisted.auto_open_on_startup = settings.auto_open_on_startup;
         sdk::SaveSettings(persisted);
     }
 

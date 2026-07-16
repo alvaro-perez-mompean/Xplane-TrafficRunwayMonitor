@@ -58,6 +58,11 @@ struct Settings {
     bool show_raw_metar = false;
     core::PressureUnit pressure_unit = core::PressureUnit::kInHg;
 
+    // Whether the dashboard window should show itself on XPluginEnable
+    // (every X-Plane launch, and every plugin re-enable). Off by default --
+    // the window stays closed until opened from the Plugins menu.
+    bool auto_open_on_startup = false;
+
     // When enabled, the orchestration cycle (Plugin.cpp) writes an
     // "RWYDBG"/"RWYCONFIRM"-prefixed line to X-Plane's Log.txt for every
     // runway match and every confirmed sighting respectively -- off by
