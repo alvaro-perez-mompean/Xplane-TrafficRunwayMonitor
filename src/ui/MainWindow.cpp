@@ -105,7 +105,10 @@ void MainWindow::RenderDashboardTab()
 
         if (hasNearby) {
             ImGui::TextUnformatted("NEARBY");
-            RenderNearbyAirportSelector(display.nearby_candidates, interaction.selected_nearby_icao);
+            if (RenderNearbyAirportSelector(display.nearby_candidates, interaction.selected_nearby_icao) &&
+                interaction.selected_nearby_icao.has_value() && interaction.on_nearby_selection_changed) {
+                interaction.on_nearby_selection_changed(*interaction.selected_nearby_icao);
+            }
             ImGui::Spacing();
             if (display.selected_nearby_entry.has_value()) {
                 RenderAirportCard(*display.selected_nearby_entry, settings.show_raw_metar, settings.pressure_unit,

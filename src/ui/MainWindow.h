@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -75,6 +76,13 @@ struct Settings {
 // selection itself).
 struct InteractionState {
     std::optional<std::string> selected_nearby_icao;
+
+    // Fired synchronously from buildInterface() the moment the user picks a
+    // different nearby airport, so the orchestration cycle (Plugin.cpp) can
+    // resolve that one airport's entry immediately instead of leaving
+    // display.selected_nearby_entry stale until the next ~1Hz
+    // RunAnalysisCycle tick.
+    std::function<void(const std::string&)> on_nearby_selection_changed;
 };
 
 class MainWindow : public ImgWindow {
