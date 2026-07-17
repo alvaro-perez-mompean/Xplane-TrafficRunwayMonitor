@@ -113,6 +113,25 @@ TEST_CASE("BuildAdvisoryClauses: wind estimate is biased to the other category's
     CHECK(clauses[1].wind_source == WindEstimateSource::kRegional);
 }
 
+TEST_CASE("BuildAdvisoryClauses: wind estimate is biased to the other category's confirmed runway when that "
+          "runway came from history, not active traffic",
+          "[AdvisoryFormat]")
+{
+    const Airport airport = MakeSingleRunwayAirport();
+    AirportEntry entry;
+    entry.arrivals.history = RunwaySightingSummary{"13", 1, 300.0, std::nullopt};
+    // departures: no active, no history -> needs wind estimate, which
+    // independently favors "31" -- the physical opposite end of the
+    // runway arrivals were recently (not currently) confirmed on.
+    entry.wind_estimate = WindEstimateResult{"31", WindEstimateSource::kRegional};
+
+    const auto clauses = BuildAdvisoryClauses(entry, &airport);
+    REQUIRE(clauses.size() == 2);
+    CHECK(clauses[1].category == AdvisoryCategory::kDeparture);
+    CHECK(clauses[1].tier == AdvisoryTier::kWindEstimate);
+    CHECK(clauses[1].runway_ids == std::vector<std::string>{"13"});
+}
+
 TEST_CASE("BuildAdvisoryClauses: wind estimate bias does NOT cross between parallel runways", "[AdvisoryFormat]")
 {
     const Airport airport = MakeParallelRunwayAirport();
