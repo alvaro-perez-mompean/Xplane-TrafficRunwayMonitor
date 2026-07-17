@@ -718,8 +718,17 @@ ImgWindow::SetVisible(bool inIsVisible)
 		// the user closed it.
 		mVrReshowPending = false;
 	}
-	if (inIsVisible)
+	if (inIsVisible) {
 		moveForVR();
+		if (mVrReshowPending) {
+			// moveForVR() just hid the window to force a VR relocation and
+			// deferred the re-show to the next flight-loop cycle -- showing
+			// it back synchronously here would reconstruct the same-call-
+			// stack hide+show pattern confirmed not to work in VR (see
+			// moveForVR()'s comment).
+			return;
+		}
+	}
 	if (GetVisible() == inIsVisible) {
 		// if the state is already correct, no-op.
 		return;
@@ -743,9 +752,18 @@ ImgWindow::moveForVR()
 	// it now and let the rest of this function re-evaluate positioning
 	// fresh on the next call.
 	if (mVrReshowPending) {
-		XPLMSetWindowIsVisible(mWindowID, 1);
 		mVrReshowPending = false;
-		XPLMDebugString("ImgWindow: entering VR -- deferred re-show fired\n");
+		if (XPLMGetDatai(gVrEnabledRef)) {
+			XPLMSetWindowIsVisible(mWindowID, 1);
+			XPLMDebugString("ImgWindow: entering VR -- deferred re-show fired\n");
+		} else {
+			// VR was toggled back off during the deferred gap -- restore
+			// the preferred layer instead of showing back into a now-stale
+			// VR positioning mode.
+			XPLMSetWindowPositioningMode(mWindowID, mPreferredLayer, -1);
+			XPLMSetWindowIsVisible(mWindowID, 1);
+			XPLMDebugString("ImgWindow: leaving VR -- deferred re-show restored preferred layer\n");
+		}
 		return;
 	}
 
