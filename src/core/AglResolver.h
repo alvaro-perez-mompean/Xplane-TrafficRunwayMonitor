@@ -23,7 +23,18 @@ struct AglResolverConfig {
     // the airport-elevation baseline by more than this many meters, since
     // real terrain near a matched/nearby airport should never be this far
     // off from that airport's own charted elevation.
-    double max_disagreement_m = 900.0; // ~3000 ft
+    //
+    // Also the only guard against a second, real (not-outside-loaded-
+    // scenery) failure mode found via in-sim testing at LEMD: a custom
+    // orthophoto/terrain-mesh scenery pack whose airport flattening didn't
+    // cover that field, so the probe hits genuine but unflattened terrain
+    // ~100m below the actual pavement -- a "successful" reading that's
+    // still wrong. Observed disagreement there clustered tightly around
+    // 99-101m for stationary traffic, so this needs to sit well under 100m
+    // to reject that case rather than the old 900m (sized only for the
+    // out-of-loaded-scenery case above, which typically disagrees by far
+    // more).
+    double max_disagreement_m = 75.0; // ~250 ft
 };
 
 struct AglResult {

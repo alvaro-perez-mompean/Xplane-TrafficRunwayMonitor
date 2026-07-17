@@ -41,6 +41,21 @@ TEST_CASE("ResolveAgl: probe reading far from airport elevation is distrusted", 
     CHECK(result.agl_m == kHighAircraftMslM - kHighAirportElevationFt * 0.3048);
 }
 
+TEST_CASE("ResolveAgl: unflattened custom-scenery terrain is distrusted", "[AglResolver]")
+{
+    // Reproduces the LEMD false-negative found via in-sim testing: a
+    // stationary/taxiing aircraft's own MSL altitude sits right at the
+    // airport's charted elevation, but the terrain probe hits real,
+    // unflattened custom-scenery terrain ~100m below it -- a genuine
+    // xplm_ProbeHitTerrain, not the out-of-loaded-scenery bogus-0 case,
+    // so it must be caught by the disagreement check on its own merits.
+    constexpr double kGroundedAircraftMslM = kAirportElevationMslM + 2.0; // parked, near-zero AGL
+    const double unflattenedProbeElevationMslM = kAirportElevationMslM - 100.0;
+    const AglResult result = ResolveAgl(kGroundedAircraftMslM, unflattenedProbeElevationMslM, kAirportElevationFt);
+    CHECK(result.source == AglSource::kAirportElevation);
+    CHECK(result.agl_m == kGroundedAircraftMslM - kAirportElevationMslM);
+}
+
 TEST_CASE("ResolveAgl: disagreement threshold is inclusive at the boundary", "[AglResolver]")
 {
     AglResolverConfig config;
