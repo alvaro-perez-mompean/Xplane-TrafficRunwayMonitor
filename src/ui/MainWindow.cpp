@@ -63,12 +63,12 @@ void MainWindow::buildInterface()
             RenderDashboardTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Settings")) {
-            RenderSettingsTab();
-            ImGui::EndTabItem();
-        }
         if (ImGui::BeginTabItem("History")) {
             RenderHistoryTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Settings")) {
+            RenderSettingsTab();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
