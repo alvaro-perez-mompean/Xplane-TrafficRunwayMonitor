@@ -68,6 +68,7 @@ add_library(TrafficRunwayMonitor SHARED
     src/sdk/TcasSource.cpp
     src/sdk/LtapiSource.cpp
     src/sdk/FmsOrigin.cpp
+    src/sdk/TerrainProbe.cpp
     src/sdk/Weather.cpp
     src/sdk/Log.cpp
     src/sdk/SettingsStore.cpp
@@ -146,6 +147,7 @@ set_target_properties(TrafficRunwayMonitor PROPERTIES
 
 add_library(trm_core STATIC
     src/core/GeoMath.cpp
+    src/core/AglResolver.cpp
     src/core/AptDat.cpp
     src/core/RunwayMatcher.cpp
     src/core/SlotValidity.cpp
