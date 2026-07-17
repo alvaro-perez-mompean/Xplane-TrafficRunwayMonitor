@@ -162,14 +162,30 @@ std::optional<double> AirportDistanceNm(const AirportDatabase& db, const std::st
     return GreatCircleDistanceNm(userLatDeg, userLonDeg, it->second.ref_lat_deg, it->second.ref_lon_deg);
 }
 
-std::optional<double> FindRunwayLengthFt(const Airport& airport, const std::string& runwayId)
+namespace {
+
+const RunwayEnd* FindRunwayEnd(const Airport& airport, const std::string& runwayId)
 {
     for (const RunwayEnd& rwyEnd : airport.runways) {
         if (rwyEnd.id == runwayId) {
-            return rwyEnd.length_ft;
+            return &rwyEnd;
         }
     }
-    return std::nullopt;
+    return nullptr;
+}
+
+} // namespace
+
+std::optional<double> FindRunwayLengthFt(const Airport& airport, const std::string& runwayId)
+{
+    const RunwayEnd* rwyEnd = FindRunwayEnd(airport, runwayId);
+    return rwyEnd ? std::make_optional(rwyEnd->length_ft) : std::nullopt;
+}
+
+std::optional<std::string> FindOtherRunwayEndId(const Airport& airport, const std::string& runwayId)
+{
+    const RunwayEnd* rwyEnd = FindRunwayEnd(airport, runwayId);
+    return rwyEnd ? std::make_optional(rwyEnd->other_end_id) : std::nullopt;
 }
 
 } // namespace trm::core
