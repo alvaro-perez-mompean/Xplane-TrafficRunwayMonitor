@@ -27,22 +27,6 @@ std::string XPlaneRoot()
     return std::string(buf);
 }
 
-// scenery_packs.ini pack paths use forward slashes and are usually
-// relative to the X-Plane root, but can also be absolute -- observed in
-// the wild for a pack stored on a different drive entirely (an Ortho4XP
-// overlay at "H:\Ortho4XP\..."). A relative entry needs root prepended; an
-// absolute one must be used as-is.
-bool IsAbsolutePath(const std::string& path)
-{
-    if (path.empty()) {
-        return false;
-    }
-    if (path.front() == '/' || path.front() == '\\') {
-        return true;
-    }
-    return path.size() >= 2 && path[1] == ':'; // drive letter, e.g. "H:\..."
-}
-
 std::optional<core::AirportDatabase> LoadDefaultAptDatFrom(const std::string& root)
 {
     // X-Plane 12 moved the default global airport database out of
@@ -95,14 +79,17 @@ std::optional<core::AirportDatabase> LoadMergedAptDat()
 
     for (const core::ScenerypacksEntry& entry : entries) {
         if (entry.is_global_airports_marker) {
-            sawGlobalAirportsMarker = true;
-            if (defaultDb) {
+            if (!sawGlobalAirportsMarker && defaultDb) {
                 orderedDbs.push_back(&*defaultDb);
             }
+            sawGlobalAirportsMarker = true;
             continue;
         }
 
-        const std::string base = IsAbsolutePath(entry.path) ? entry.path : root + entry.path;
+        std::string base = core::IsAbsolutePath(entry.path) ? entry.path : root + entry.path;
+        if (!base.empty() && base.back() != '/' && base.back() != '\\') {
+            base += '/';
+        }
         std::ifstream packStream(base + "Earth nav data/apt.dat");
         if (!packStream.is_open()) {
             continue; // most packs (textures/objects/landmarks) carry no apt.dat at all

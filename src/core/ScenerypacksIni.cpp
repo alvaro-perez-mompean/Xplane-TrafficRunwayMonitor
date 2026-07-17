@@ -41,4 +41,15 @@ std::vector<ScenerypacksEntry> ParseScenerypacksIni(std::istream& in)
     return entries;
 }
 
+bool IsAbsolutePath(const std::string& path)
+{
+    if (path.empty()) {
+        return false;
+    }
+    if (path.front() == '/' || path.front() == '\\') {
+        return true;
+    }
+    return path.size() >= 2 && path[1] == ':'; // drive letter, e.g. "H:\..."
+}
+
 } // namespace trm::core

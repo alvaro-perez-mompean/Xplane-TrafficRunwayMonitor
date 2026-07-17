@@ -34,4 +34,10 @@ struct ScenerypacksEntry {
 // pack contributes nothing, so it can't affect priority ordering either.
 std::vector<ScenerypacksEntry> ParseScenerypacksIni(std::istream& in);
 
+// True if `path` (a ScenerypacksEntry::path value) is already absolute and
+// must be used as-is rather than resolved relative to the X-Plane root --
+// observed in the wild for a pack stored on a different drive entirely (an
+// Ortho4XP overlay at "H:\Ortho4XP\...").
+bool IsAbsolutePath(const std::string& path);
+
 } // namespace trm::core

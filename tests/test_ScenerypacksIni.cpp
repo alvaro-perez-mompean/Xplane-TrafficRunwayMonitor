@@ -77,3 +77,16 @@ TEST_CASE("ParseScenerypacksIni: empty input yields no entries", "[ScenerypacksI
     std::istringstream in("");
     CHECK(ParseScenerypacksIni(in).empty());
 }
+
+TEST_CASE("IsAbsolutePath: recognizes POSIX and Windows absolute forms", "[ScenerypacksIni]")
+{
+    CHECK(IsAbsolutePath("/Custom Scenery/KJFK Airport/"));
+    CHECK(IsAbsolutePath("\\Custom Scenery\\KJFK Airport\\"));
+    CHECK(IsAbsolutePath("H:\\Ortho4XP\\_internal\\Ortho4XP_Data\\yOrtho4XP_Overlays/"));
+}
+
+TEST_CASE("IsAbsolutePath: relative and empty paths are not absolute", "[ScenerypacksIni]")
+{
+    CHECK_FALSE(IsAbsolutePath("Custom Scenery/KJFK Airport/"));
+    CHECK_FALSE(IsAbsolutePath(""));
+}
