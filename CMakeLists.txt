@@ -71,6 +71,7 @@ add_library(TrafficRunwayMonitor SHARED
     src/sdk/Weather.cpp
     src/sdk/Log.cpp
     src/sdk/SettingsStore.cpp
+    src/sdk/PluginPath.cpp
     src/ui/MainWindow.cpp
     src/ui/Widgets.cpp
     src/ui/Theme.cpp
@@ -141,6 +142,19 @@ set_target_properties(TrafficRunwayMonitor PROPERTIES
     PREFIX ""
     OUTPUT_NAME "TrafficRunwayMonitor"
     SUFFIX ".xpl"
+)
+
+# Bundled icon font (ui/MainWindow::InitFontAtlas merges it into the shared
+# atlas) -- unlike DejaVuSans.ttf, which is borrowed from X-Plane's own
+# install via XPLMGetSystemPath, this one ships with the plugin itself.
+# Deployed as Resources/fonts/, a sibling of win_x64/ (matching X-Plane's own
+# Resources/fonts/ layout), so sdk::PluginPath's plugin-root + "Resources/..."
+# lookup works the same in the build tree as in the deployed plugin folder.
+add_custom_command(TARGET TrafficRunwayMonitor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Resources/fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/third_party/FontAwesome/fa-solid-900.ttf"
+        "${CMAKE_BINARY_DIR}/Resources/fonts/trm_icons.ttf"
 )
 
 # --- core/: pure logic, no XPLM/SDK dependency (section 3) ---

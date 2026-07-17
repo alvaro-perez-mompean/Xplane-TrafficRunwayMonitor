@@ -7,6 +7,7 @@
 #include "XPLMUtilities.h"
 
 #include "sdk/Log.h"
+#include "sdk/PluginPath.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
@@ -57,6 +58,40 @@ void MainWindow::InitFontAtlas()
 
     auto atlas = std::make_shared<ImgFontAtlas>();
     atlas->AddFontFromFileTTF(fontPath.c_str(), 16.0f);
+
+    // Icon font (third_party/FontAwesome, bundled with the plugin itself --
+    // see sdk::PluginPath, unlike DejaVuSans.ttf above which is borrowed
+    // from X-Plane's own install). Merged into the same ImFont as DejaVuSans
+    // (MergeMode) so icon glyphs can be spliced straight into ImGui::Text
+    // calls alongside regular text -- see Theme.h's kIcon* constants. Built
+    // as [codepoint, codepoint] pairs (zero-terminated) since the icons
+    // aren't contiguous. `static` (not a plain local) because ImFontConfig's
+    // GlyphRanges is a raw pointer ImGui keeps and reads from for the font's
+    // entire lifetime (its own header: "THE ARRAY DATA NEEDS TO PERSIST AS
+    // LONG AS THE FONT IS ALIVE") -- a stack-local vector here would leave
+    // that pointer dangling the moment this function returns. InitFontAtlas
+    // itself only runs once (see its own doc comment), so a function-local
+    // static's lifetime already matches what's needed.
+    static const std::vector<ImWchar> kIconGlyphRanges = [] {
+        std::vector<ImWchar> ranges;
+        ranges.reserve(kIconGlyphCodepoints.size() * 2 + 1);
+        for (unsigned short codepoint : kIconGlyphCodepoints) {
+            ranges.push_back(codepoint);
+            ranges.push_back(codepoint);
+        }
+        ranges.push_back(0);
+        return ranges;
+    }();
+
+    // Skipped entirely (icons render as tofu boxes, text is unaffected) if
+    // the plugin's own path can't be resolved or the file isn't where
+    // CMake's add_custom_command puts it.
+    if (std::optional<std::string> iconFontPath = sdk::IconFontPath(); iconFontPath.has_value()) {
+        ImFontConfig iconFontConfig;
+        iconFontConfig.MergeMode = true;
+        atlas->AddFontFromFileTTF(iconFontPath->c_str(), 16.0f, &iconFontConfig, kIconGlyphRanges.data());
+    }
+
     atlas->bindTexture();
     ImgWindow::sFontAtlas = atlas;
 }

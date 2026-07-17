@@ -71,6 +71,31 @@ constexpr float kUiItemInnerSpacingY = 4.0f;
 // point. Touches ImGui::GetStyle() directly; no per-window state.
 void ApplyTheme();
 
+// Font Awesome 6 Free Solid glyphs (third_party/FontAwesome, SIL OFL 1.1),
+// merged into the shared font atlas alongside DejaVuSans -- see
+// MainWindow::InitFontAtlas. Each constant is the icon's UTF-8 encoding, so
+// callers just splice it into a format string, e.g.
+// ImGui::Text("%s Departures", kIconDeparture). kIconGlyphCodepoints below
+// must list every codepoint used by the constants in this block -- it's
+// what MainWindow::InitFontAtlas hands to ImGui as the merge font's glyph
+// range, so a codepoint missing from it renders as a blank/tofu glyph.
+constexpr const char* kIconConfirmed = "\xEF\x81\x98";    // f058 circle-check
+constexpr const char* kIconWindEstimate = "\xEF\x81\x99"; // f059 circle-question
+constexpr const char* kIconWaiting = "\xEF\x80\x97";      // f017 clock
+constexpr const char* kIconWind = "\xEF\x9C\xAE";         // f72e wind
+constexpr const char* kIconAltimeter = "\xEF\x98\xA4";    // f624 gauge
+constexpr const char* kIconDeparture = "\xEF\x96\xB0";    // f5b0 plane-departure
+constexpr const char* kIconArrival = "\xEF\x96\xAF";      // f5af plane-arrival
+constexpr const char* kIconNearby = "\xEF\x8F\x85";       // f3c5 location-dot
+constexpr const char* kIconDashboardTab = "\xEF\x81\xB2"; // f072 plane
+constexpr const char* kIconHistoryTab = "\xEF\x87\x9A";   // f1da clock-rotate-left
+constexpr const char* kIconSettingsTab = "\xEF\x80\x93";  // f013 gear
+constexpr const char* kIconDebug = "\xEF\x86\x88";        // f188 bug
+
+constexpr std::array<unsigned short, 12> kIconGlyphCodepoints = {
+    0xF058, 0xF059, 0xF017, 0xF72E, 0xF624, 0xF5B0, 0xF5AF, 0xF3C5, 0xF072, 0xF1DA, 0xF013, 0xF188,
+};
+
 constexpr int kDefaultWindowWidth = 560;
 constexpr int kDefaultWindowHeight = 700;
 constexpr int kMinWindowWidth = 320;
