@@ -7,6 +7,7 @@
 
 #include "imgui.h"
 
+#include "core/AdvisoryFormat.h"
 #include "core/Aggregator.h"
 #include "core/AptDat.h"
 #include "core/EventLog.h"
@@ -41,13 +42,20 @@ void RenderLengthSuffix(const std::optional<double>& lengthFt);
 void RenderCategorySection(const char* title, const core::CategoryResult& category,
                             const std::optional<core::WindEstimateResult>& windEstimate);
 
+// The natural-language advisory sentence (core::BuildAdvisoryClauses +
+// FormatAdvisoryPlainText), word-wrapped, e.g. "Currently landing and
+// departing runway 31, wind 310 at 8, QNH 1013."
+void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit);
+
 // One airport's full card: header (ICAO + distance), altimeter setting
-// (formatted per `pressureUnit`, Settings tab), Departures before Arrivals,
-// optional raw-METAR debug line. Set showHeader=false when the
-// ICAO/name/distance is already shown by a caller above (e.g. the nearby-
-// airport combo box's own preview), to avoid repeating it.
+// (formatted per `pressureUnit`, Settings tab), then -- per `displayMode`
+// (Settings tab) -- the natural-language sentence and/or the classic
+// Departures/Arrivals bullet lines, optional raw-METAR debug line. Set
+// showHeader=false when the ICAO/name/distance is already shown by a
+// caller above (e.g. the nearby-airport combo box's own preview), to
+// avoid repeating it.
 void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core::PressureUnit pressureUnit,
-                        bool showHeader = true);
+                        core::AdvisoryDisplayMode displayMode, bool showHeader = true);
 
 // Centerpiece widget: a north-up, to-scale plan view of every runway,
 // projected from each

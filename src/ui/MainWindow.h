@@ -7,6 +7,7 @@
 
 #include "ImgWindow.h"
 
+#include "core/AdvisoryFormat.h"
 #include "core/Aggregator.h"
 #include "core/AptDat.h"
 #include "core/EventLog.h"
@@ -57,6 +58,12 @@ struct Settings {
     float text_size_scale = 1.0f;
     bool show_raw_metar = false;
     core::PressureUnit pressure_unit = core::PressureUnit::kInHg;
+
+    // Airport-card display mode: the classic per-runway bullet lines, the
+    // natural-language advisory sentence, or both. Defaults to List so
+    // this feature doesn't change what an existing user sees unless they
+    // opt in.
+    core::AdvisoryDisplayMode advisory_display_mode = core::AdvisoryDisplayMode::kList;
 
     // Whether the dashboard window should show itself on XPluginEnable
     // (every X-Plane launch, and every plugin re-enable). Off by default --

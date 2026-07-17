@@ -24,6 +24,7 @@ add_executable(trm_core_tests
     test_Format.cpp
     test_SlotAssignment.cpp
     test_EventLog.cpp
+    test_AdvisoryFormat.cpp
 )
 target_link_libraries(trm_core_tests PRIVATE trm_core Catch2::Catch2WithMain)
 target_compile_features(trm_core_tests PRIVATE cxx_std_17)

@@ -87,8 +87,16 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
     }
 }
 
+void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit)
+{
+    const std::vector<core::AdvisoryClause> clauses = core::BuildAdvisoryClauses(entry);
+    const std::string text =
+        core::FormatAdvisoryPlainText(clauses, entry.current_wind, entry.altimeter_pa, pressureUnit);
+    ImGui::TextWrapped("  %s", text.c_str());
+}
+
 void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core::PressureUnit pressureUnit,
-                        bool showHeader)
+                        core::AdvisoryDisplayMode displayMode, bool showHeader)
 {
     if (showHeader) {
         if (entry.name.has_value() && entry.distance_nm.has_value()) {
@@ -130,8 +138,15 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
         ImGui::PopStyleColor();
     }
 
-    RenderCategorySection("  Departures", entry.departures, entry.wind_estimate);
-    RenderCategorySection("  Arrivals", entry.arrivals, entry.wind_estimate);
+    if (displayMode == core::AdvisoryDisplayMode::kNaturalLanguage || displayMode == core::AdvisoryDisplayMode::kBoth) {
+        RenderAdvisorySentence(entry, pressureUnit);
+        ImGui::Spacing();
+    }
+
+    if (displayMode == core::AdvisoryDisplayMode::kList || displayMode == core::AdvisoryDisplayMode::kBoth) {
+        RenderCategorySection("  Departures", entry.departures, entry.wind_estimate);
+        RenderCategorySection("  Arrivals", entry.arrivals, entry.wind_estimate);
+    }
 
     if (showRawMetar && entry.metar.has_value()) {
         ImGui::Text("  METAR: %s", entry.metar->c_str());
