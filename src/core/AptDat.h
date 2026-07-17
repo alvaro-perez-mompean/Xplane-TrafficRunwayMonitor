@@ -77,4 +77,13 @@ std::optional<double> AirportDistanceNm(const AirportDatabase& db, const std::st
 // touching function in this codebase.
 std::optional<double> FindRunwayLengthFt(const Airport& airport, const std::string& runwayId);
 
+// Looks up a runway end's physical opposite-threshold partner (e.g. "13L"
+// -> "31L"). Returns nullopt if no runway with that id exists on this
+// airport. Deliberately exact-id based, not heading- or number-family
+// based: at a parallel-runway airport (13L/31L and 13R/31R as two distinct
+// physical strips), "13L" and "31R" share a heading family but are NOT the
+// same pavement, and callers relying on this (core::BuildAdvisoryClauses)
+// need that distinction preserved.
+std::optional<std::string> FindOtherRunwayEndId(const Airport& airport, const std::string& runwayId);
+
 } // namespace trm::core

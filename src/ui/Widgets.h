@@ -7,6 +7,7 @@
 
 #include "imgui.h"
 
+#include "core/AdvisoryFormat.h"
 #include "core/Aggregator.h"
 #include "core/AptDat.h"
 #include "core/EventLog.h"
@@ -41,13 +42,30 @@ void RenderLengthSuffix(const std::optional<double>& lengthFt);
 void RenderCategorySection(const char* title, const core::CategoryResult& category,
                             const std::optional<core::WindEstimateResult>& windEstimate);
 
+// Word-wrapped render of a precomputed advisory sentence (core::
+// ResolveAdvisoryText, resolved once per orchestration cycle in
+// Plugin.cpp -- this function does no core:: computation itself, per
+// CLAUDE.md's ui/ layering rule), e.g. "Currently landing and departing
+// runway 31, wind 310 at 8, QNH 1013." Picks
+// advisoryText.without_wind_and_altimeter when includeWindAndAltimeter is
+// false (the caller already shows that data elsewhere -- RenderAirportCard's
+// Both mode), else .with_wind_and_altimeter.
+void RenderAdvisorySentence(const core::ResolvedAdvisoryText& advisoryText, bool includeWindAndAltimeter = true);
+
 // One airport's full card: header (ICAO + distance), altimeter setting
-// (formatted per `pressureUnit`, Settings tab), Departures before Arrivals,
-// optional raw-METAR debug line. Set showHeader=false when the
-// ICAO/name/distance is already shown by a caller above (e.g. the nearby-
-// airport combo box's own preview), to avoid repeating it.
+// (formatted per `pressureUnit`, Settings tab), then -- per `displayMode`
+// (Settings tab) -- the natural-language sentence and/or the classic
+// Departures/Arrivals bullet lines, optional raw-METAR debug line.
+// `advisoryText` is the precomputed core::ResolveAdvisoryText result for
+// `entry` (Plugin.cpp's orchestration cycle resolves it alongside entry
+// itself); nullopt skips the sentence even if displayMode calls for it
+// (defensive only -- callers always have both resolved together). Set
+// showHeader=false when the ICAO/name/distance is already shown by a
+// caller above (e.g. the nearby-airport combo box's own preview), to
+// avoid repeating it.
 void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core::PressureUnit pressureUnit,
-                        bool showHeader = true);
+                        core::AdvisoryDisplayMode displayMode,
+                        const std::optional<core::ResolvedAdvisoryText>& advisoryText, bool showHeader = true);
 
 // Centerpiece widget: a north-up, to-scale plan view of every runway,
 // projected from each

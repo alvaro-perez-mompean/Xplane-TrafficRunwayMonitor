@@ -16,6 +16,13 @@ std::string FormatAgo(double elapsedSec);
 // User-selectable display unit for altimeter/QNH readings (Settings tab).
 enum class PressureUnit { kInHg, kHpa };
 
+// Pascals-to-display-unit conversion factors, shared by FormatAltimeter
+// below and by core::AdvisoryFormat's spoken/plain-text phraseology
+// (which needs the same conversion but without FormatAltimeter's
+// unit-name suffix).
+constexpr double kPaToInHg = 0.0002953;
+constexpr double kPaToHpa = 0.01;
+
 // Altimeter setting readout, e.g. FormatAltimeter(101325.0, kInHg) ==
 // "29.92 inHg", FormatAltimeter(101325.0, kHpa) == "1013 hPa". `pressurePa`
 // is station pressure in Pascals (XPLMWeatherInfo_t's pressure_alt field).

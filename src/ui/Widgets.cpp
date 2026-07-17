@@ -87,8 +87,23 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
     }
 }
 
+// `includeWindAndAltimeter` is false in Both mode -- the header's own
+// Wind:/Altimeter: lines are already showing that data there, so the
+// sentence only needs to state runway status to avoid repeating it.
+// Natural language mode has no such header lines (see RenderAirportCard),
+// so it stays self-contained. Both variants are already formatted
+// (core::ResolveAdvisoryText, resolved once per orchestration cycle) --
+// this just picks one and draws it, no core:: computation here.
+void RenderAdvisorySentence(const core::ResolvedAdvisoryText& advisoryText, bool includeWindAndAltimeter)
+{
+    const std::string& text =
+        includeWindAndAltimeter ? advisoryText.with_wind_and_altimeter : advisoryText.without_wind_and_altimeter;
+    ImGui::TextWrapped("  %s", text.c_str());
+}
+
 void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core::PressureUnit pressureUnit,
-                        bool showHeader)
+                        core::AdvisoryDisplayMode displayMode,
+                        const std::optional<core::ResolvedAdvisoryText>& advisoryText, bool showHeader)
 {
     if (showHeader) {
         if (entry.name.has_value() && entry.distance_nm.has_value()) {
@@ -102,7 +117,12 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
         }
     }
 
-    if (entry.current_wind.has_value()) {
+    // Natural language mode's sentence states wind/altimeter itself
+    // (RenderAdvisorySentence below), so these header lines would just
+    // repeat it there -- shown for List and Both only.
+    const bool showHeaderWindAltimeter = displayMode != core::AdvisoryDisplayMode::kNaturalLanguage;
+
+    if (showHeaderWindAltimeter && entry.current_wind.has_value()) {
         const core::WindInfo& wind = *entry.current_wind;
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
         if (wind.is_calm) {
@@ -124,14 +144,25 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
         }
     }
 
-    if (entry.altimeter_pa.has_value()) {
+    if (showHeaderWindAltimeter && entry.altimeter_pa.has_value()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
         ImGui::Text("  Altimeter: %s", core::FormatAltimeter(*entry.altimeter_pa, pressureUnit).c_str());
         ImGui::PopStyleColor();
     }
 
-    RenderCategorySection("  Departures", entry.departures, entry.wind_estimate);
-    RenderCategorySection("  Arrivals", entry.arrivals, entry.wind_estimate);
+    const bool wantsSentence =
+        displayMode == core::AdvisoryDisplayMode::kNaturalLanguage || displayMode == core::AdvisoryDisplayMode::kBoth;
+    if (wantsSentence && advisoryText.has_value()) {
+        RenderAdvisorySentence(*advisoryText,
+                                /*includeWindAndAltimeter=*/displayMode ==
+                                    core::AdvisoryDisplayMode::kNaturalLanguage);
+        ImGui::Spacing();
+    }
+
+    if (displayMode == core::AdvisoryDisplayMode::kList || displayMode == core::AdvisoryDisplayMode::kBoth) {
+        RenderCategorySection("  Departures", entry.departures, entry.wind_estimate);
+        RenderCategorySection("  Arrivals", entry.arrivals, entry.wind_estimate);
+    }
 
     if (showRawMetar && entry.metar.has_value()) {
         ImGui::Text("  METAR: %s", entry.metar->c_str());

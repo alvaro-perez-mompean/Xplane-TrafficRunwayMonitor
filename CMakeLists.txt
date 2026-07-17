@@ -160,6 +160,7 @@ add_library(trm_core STATIC
     src/core/Format.cpp
     src/core/SlotAssignment.cpp
     src/core/EventLog.cpp
+    src/core/AdvisoryFormat.cpp
 )
 target_include_directories(trm_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(trm_core PUBLIC cxx_std_17)
