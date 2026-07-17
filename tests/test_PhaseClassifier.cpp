@@ -78,3 +78,34 @@ TEST_CASE("ClassifyPhase: on-ground/airborne boundary uses strict less-than on A
     CHECK(ClassifyPhase(config.ground_agl_threshold_m, 90.0, VsState::kStable, false, GsTrend::kStable, config)
           == FlightPhase::kAirborneEnroute);
 }
+
+TEST_CASE("ClassifyPhase: low groundspeed overrides a wrong (too-high) AGL reading", "[PhaseClassifier]")
+{
+    // Reproduces the LEMD/LEBL in-sim finding: a terrain probe under some
+    // custom scenery reports real but unflattened (too-high) AGL for a
+    // genuinely grounded aircraft. A sustained low groundspeed can't be
+    // real flight for fixed-wing traffic, so it overrides AGL.
+    SECTION("stationary despite airborne-looking AGL -> taxi") {
+        CHECK(ClassifyPhase(kAirborneAgl, 0.0, VsState::kStable, true, GsTrend::kStable)
+              == FlightPhase::kTaxi);
+    }
+    SECTION("slow taxi despite airborne-looking AGL, not aligned -> taxi") {
+        CHECK(ClassifyPhase(kAirborneAgl, 5.0, VsState::kStable, false, GsTrend::kStable)
+              == FlightPhase::kTaxi);
+    }
+}
+
+TEST_CASE("ClassifyPhase: ground_gs_override_kt boundary uses strict less-than", "[PhaseClassifier]")
+{
+    PhaseClassifierConfig config;
+    SECTION("gs exactly at override threshold -> not forced on-ground") {
+        CHECK(ClassifyPhase(kAirborneAgl, config.ground_gs_override_kt, VsState::kStable, false, GsTrend::kStable,
+                             config)
+              == FlightPhase::kAirborneEnroute);
+    }
+    SECTION("gs just below override threshold -> forced on-ground (taxi)") {
+        CHECK(ClassifyPhase(kAirborneAgl, config.ground_gs_override_kt - 0.001, VsState::kStable, false,
+                             GsTrend::kStable, config)
+              == FlightPhase::kTaxi);
+    }
+}
