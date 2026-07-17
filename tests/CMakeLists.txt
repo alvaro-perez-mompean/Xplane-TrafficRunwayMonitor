@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(trm_core_tests
     test_GeoMath.cpp
     test_AptDat.cpp
+    test_ScenerypacksIni.cpp
     test_RunwayMatcher.cpp
     test_SlotValidity.cpp
     test_TrendFilter.cpp

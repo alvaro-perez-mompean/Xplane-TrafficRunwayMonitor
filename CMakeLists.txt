@@ -147,6 +147,7 @@ set_target_properties(TrafficRunwayMonitor PROPERTIES
 add_library(trm_core STATIC
     src/core/GeoMath.cpp
     src/core/AptDat.cpp
+    src/core/ScenerypacksIni.cpp
     src/core/RunwayMatcher.cpp
     src/core/SlotValidity.cpp
     src/core/TrendFilter.cpp

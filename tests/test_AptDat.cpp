@@ -209,3 +209,44 @@ TEST_CASE("FindRunwayLengthFt: finds by id, nullopt if absent", "[AptDat]")
 
     CHECK_FALSE(FindRunwayLengthFt(airport, "99").has_value());
 }
+
+TEST_CASE("MergeAirportDatabases: higher-priority database wins for a shared ICAO", "[AptDat]")
+{
+    std::istringstream defaultIn("1 0 0 0 KTST Default Version\n99\n");
+    const AirportDatabase defaultDb = ParseAptDat(defaultIn);
+
+    std::istringstream customIn("1 0 0 0 KTST Custom Version\n99\n");
+    const AirportDatabase customDb = ParseAptDat(customIn);
+
+    const AirportDatabase merged = MergeAirportDatabases({&customDb, &defaultDb});
+
+    REQUIRE(merged.count("KTST") == 1);
+    CHECK(merged.at("KTST").name == "Custom Version");
+}
+
+TEST_CASE("MergeAirportDatabases: falls through to a lower-priority database for ICAOs it doesn't define", "[AptDat]")
+{
+    std::istringstream customIn("1 0 0 0 KJFK Custom JFK\n99\n");
+    const AirportDatabase customDb = ParseAptDat(customIn);
+    const AirportDatabase defaultDb = MakeTwoAirportDb();
+
+    const AirportDatabase merged = MergeAirportDatabases({&customDb, &defaultDb});
+
+    REQUIRE(merged.count("KJFK") == 1);
+    CHECK(merged.at("KJFK").name == "Custom JFK");
+    REQUIRE(merged.count("KTST") == 1);
+    CHECK(merged.at("KTST").name == "Test One");
+    REQUIRE(merged.count("KFAR") == 1);
+}
+
+TEST_CASE("MergeAirportDatabases: null entries are skipped", "[AptDat]")
+{
+    const AirportDatabase defaultDb = MakeTwoAirportDb();
+    const AirportDatabase merged = MergeAirportDatabases({nullptr, &defaultDb});
+    CHECK(merged.size() == defaultDb.size());
+}
+
+TEST_CASE("MergeAirportDatabases: empty list yields an empty database", "[AptDat]")
+{
+    CHECK(MergeAirportDatabases({}).empty());
+}

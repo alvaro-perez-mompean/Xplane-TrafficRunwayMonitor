@@ -45,6 +45,15 @@ using AirportDatabase = std::unordered_map<std::string, Airport>;
 
 AirportDatabase ParseAptDat(std::istream& in);
 
+// Merges multiple already-parsed airport databases into one, respecting
+// priority: databasesInPriorityOrder.front() is highest priority. For any
+// given ICAO, the first database that defines it wins outright (no
+// per-field augmentation) -- later databases only fill in ICAOs none of
+// the higher-priority ones already defined. Null entries are skipped, so
+// callers can pass a database that may or may not have loaded without a
+// separate filter pass.
+AirportDatabase MergeAirportDatabases(const std::vector<const AirportDatabase*>& databasesInPriorityOrder);
+
 struct NearbyAirport {
     std::string icao;
     std::string name;
