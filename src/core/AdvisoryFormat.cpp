@@ -120,6 +120,26 @@ std::string CategoryNoun(AdvisoryCategory category)
     return "traffic";
 }
 
+// Sentence-specific caveat, distinct from WindEstimateSourceLabel (which is
+// written for the tooltip's full sentence-fragment style). Own-station/
+// station readings are real, specific weather data -- trustworthy enough
+// that flagging them in the sentence reads as unnecessary hedging.
+// Regional/aircraft-position readings are rougher approximations, worth a
+// short caveat. nullopt means "say nothing" (the trustworthy tiers).
+std::optional<std::string> AdvisoryWindSourceCaveat(WindEstimateSource source)
+{
+    switch (source) {
+        case WindEstimateSource::kOwnStation:
+        case WindEstimateSource::kStation:
+            return std::nullopt;
+        case WindEstimateSource::kRegional:
+            return "regional estimate";
+        case WindEstimateSource::kAircraftPosition:
+            return "aircraft-based estimate";
+    }
+    return std::nullopt;
+}
+
 using RunwayIdFormatter = std::function<std::string(const std::string&)>;
 
 std::string FormatClause(const AdvisoryClause& clause, const RunwayIdFormatter& formatRunwayId)
@@ -144,7 +164,9 @@ std::string FormatClause(const AdvisoryClause& clause, const RunwayIdFormatter& 
             std::string text = "wind favors " + RunwayNoun(ids) + " " + JoinRunwayIds(ids) + " for " +
                                 CategoryNoun(clause.category);
             if (clause.wind_source.has_value()) {
-                text += " (" + WindEstimateSourceLabel(*clause.wind_source) + ")";
+                if (const auto caveat = AdvisoryWindSourceCaveat(*clause.wind_source)) {
+                    text += " (" + *caveat + ")";
+                }
             }
             return text;
         }

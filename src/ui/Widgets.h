@@ -44,8 +44,12 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
 
 // The natural-language advisory sentence (core::BuildAdvisoryClauses +
 // FormatAdvisoryPlainText), word-wrapped, e.g. "Currently landing and
-// departing runway 31, wind 310 at 8, QNH 1013."
-void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit);
+// departing runway 31, wind 310 at 8, QNH 1013." Set
+// includeWindAndAltimeter=false when the caller already shows that data
+// elsewhere (RenderAirportCard's Both mode), so the sentence isn't a
+// duplicate of it.
+void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit,
+                             bool includeWindAndAltimeter = true);
 
 // One airport's full card: header (ICAO + distance), altimeter setting
 // (formatted per `pressureUnit`, Settings tab), then -- per `displayMode`

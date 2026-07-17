@@ -184,15 +184,37 @@ TEST_CASE("FormatAdvisoryPlainText: history clause includes elapsed time", "[Adv
     CHECK(text == "Currently landing runway 31, recently departed runway 18L (14m ago).");
 }
 
-TEST_CASE("FormatAdvisoryPlainText: wind-estimate clause names its source", "[AdvisoryFormat]")
+TEST_CASE("FormatAdvisoryPlainText: wind-estimate clause caveats uncertain sources only", "[AdvisoryFormat]")
 {
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("31")};
-    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kRegional};
 
-    const auto clauses = BuildAdvisoryClauses(entry);
-    const std::string text = FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa);
-    CHECK(text == "Currently landing runway 31, wind favors runway 04 for departures (regional weather estimate).");
+    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kRegional};
+    auto clauses = BuildAdvisoryClauses(entry);
+    CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
+          "Currently landing runway 31, wind favors runway 04 for departures (regional estimate).");
+
+    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kAircraftPosition};
+    clauses = BuildAdvisoryClauses(entry);
+    CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
+          "Currently landing runway 31, wind favors runway 04 for departures (aircraft-based estimate).");
+}
+
+TEST_CASE("FormatAdvisoryPlainText: wind-estimate clause says nothing extra for trustworthy sources",
+          "[AdvisoryFormat]")
+{
+    AirportEntry entry;
+    entry.arrivals.active = {MakeActive("31")};
+
+    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kOwnStation};
+    auto clauses = BuildAdvisoryClauses(entry);
+    CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
+          "Currently landing runway 31, wind favors runway 04 for departures.");
+
+    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kStation};
+    clauses = BuildAdvisoryClauses(entry);
+    CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
+          "Currently landing runway 31, wind favors runway 04 for departures.");
 }
 
 TEST_CASE("FormatAdvisoryPlainText: no traffic at all collapses to one unqualified clause", "[AdvisoryFormat]")

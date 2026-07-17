@@ -87,11 +87,18 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
     }
 }
 
-void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit)
+// `includeWindAndAltimeter` is false in Both mode -- the header's own
+// Wind:/Altimeter: lines are already showing that data there, so the
+// sentence only needs to state runway status to avoid repeating it.
+// Natural language mode has no such header lines (see RenderAirportCard),
+// so it stays self-contained.
+void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit,
+                             bool includeWindAndAltimeter)
 {
     const std::vector<core::AdvisoryClause> clauses = core::BuildAdvisoryClauses(entry);
-    const std::string text =
-        core::FormatAdvisoryPlainText(clauses, entry.current_wind, entry.altimeter_pa, pressureUnit);
+    const std::optional<core::WindInfo> wind = includeWindAndAltimeter ? entry.current_wind : std::nullopt;
+    const std::optional<double> altimeterPa = includeWindAndAltimeter ? entry.altimeter_pa : std::nullopt;
+    const std::string text = core::FormatAdvisoryPlainText(clauses, wind, altimeterPa, pressureUnit);
     ImGui::TextWrapped("  %s", text.c_str());
 }
 
@@ -110,7 +117,12 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
         }
     }
 
-    if (entry.current_wind.has_value()) {
+    // Natural language mode's sentence states wind/altimeter itself
+    // (RenderAdvisorySentence below), so these header lines would just
+    // repeat it there -- shown for List and Both only.
+    const bool showHeaderWindAltimeter = displayMode != core::AdvisoryDisplayMode::kNaturalLanguage;
+
+    if (showHeaderWindAltimeter && entry.current_wind.has_value()) {
         const core::WindInfo& wind = *entry.current_wind;
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
         if (wind.is_calm) {
@@ -132,14 +144,16 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
         }
     }
 
-    if (entry.altimeter_pa.has_value()) {
+    if (showHeaderWindAltimeter && entry.altimeter_pa.has_value()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
         ImGui::Text("  Altimeter: %s", core::FormatAltimeter(*entry.altimeter_pa, pressureUnit).c_str());
         ImGui::PopStyleColor();
     }
 
     if (displayMode == core::AdvisoryDisplayMode::kNaturalLanguage || displayMode == core::AdvisoryDisplayMode::kBoth) {
-        RenderAdvisorySentence(entry, pressureUnit);
+        RenderAdvisorySentence(entry, pressureUnit,
+                                /*includeWindAndAltimeter=*/displayMode ==
+                                    core::AdvisoryDisplayMode::kNaturalLanguage);
         ImGui::Spacing();
     }
 
