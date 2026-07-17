@@ -91,19 +91,19 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
 // Wind:/Altimeter: lines are already showing that data there, so the
 // sentence only needs to state runway status to avoid repeating it.
 // Natural language mode has no such header lines (see RenderAirportCard),
-// so it stays self-contained.
-void RenderAdvisorySentence(const core::AirportEntry& entry, core::PressureUnit pressureUnit,
-                             bool includeWindAndAltimeter)
+// so it stays self-contained. Both variants are already formatted
+// (core::ResolveAdvisoryText, resolved once per orchestration cycle) --
+// this just picks one and draws it, no core:: computation here.
+void RenderAdvisorySentence(const core::ResolvedAdvisoryText& advisoryText, bool includeWindAndAltimeter)
 {
-    const std::vector<core::AdvisoryClause> clauses = core::BuildAdvisoryClauses(entry);
-    const std::optional<core::WindInfo> wind = includeWindAndAltimeter ? entry.current_wind : std::nullopt;
-    const std::optional<double> altimeterPa = includeWindAndAltimeter ? entry.altimeter_pa : std::nullopt;
-    const std::string text = core::FormatAdvisoryPlainText(clauses, wind, altimeterPa, pressureUnit);
+    const std::string& text =
+        includeWindAndAltimeter ? advisoryText.with_wind_and_altimeter : advisoryText.without_wind_and_altimeter;
     ImGui::TextWrapped("  %s", text.c_str());
 }
 
 void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core::PressureUnit pressureUnit,
-                        core::AdvisoryDisplayMode displayMode, bool showHeader)
+                        core::AdvisoryDisplayMode displayMode,
+                        const std::optional<core::ResolvedAdvisoryText>& advisoryText, bool showHeader)
 {
     if (showHeader) {
         if (entry.name.has_value() && entry.distance_nm.has_value()) {
@@ -150,8 +150,10 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
         ImGui::PopStyleColor();
     }
 
-    if (displayMode == core::AdvisoryDisplayMode::kNaturalLanguage || displayMode == core::AdvisoryDisplayMode::kBoth) {
-        RenderAdvisorySentence(entry, pressureUnit,
+    const bool wantsSentence =
+        displayMode == core::AdvisoryDisplayMode::kNaturalLanguage || displayMode == core::AdvisoryDisplayMode::kBoth;
+    if (wantsSentence && advisoryText.has_value()) {
+        RenderAdvisorySentence(*advisoryText,
                                 /*includeWindAndAltimeter=*/displayMode ==
                                     core::AdvisoryDisplayMode::kNaturalLanguage);
         ImGui::Spacing();

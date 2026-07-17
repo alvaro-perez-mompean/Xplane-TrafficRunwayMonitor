@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 
@@ -56,6 +57,29 @@ bool SameRunwaySet(const std::vector<std::string>& a, const std::vector<std::str
     std::sort(sortedA.begin(), sortedA.end());
     std::sort(sortedB.begin(), sortedB.end());
     return sortedA == sortedB;
+}
+
+// kHistory is the only tier whose rendered text depends on a per-category
+// elapsed_sec (FormatClause's "(Nm ago)" suffix) -- arrival and departure
+// history are resolved independently, from separate sighting streams (see
+// Aggregator::BuildCategoryResult), so a shared runway id does NOT imply a
+// shared timestamp: an arrival that landed on runway 09 three minutes ago
+// and an unrelated departure that left the same runway 25 minutes ago can
+// both surface as that runway's kHistory pick. Collapsing them into one
+// clause has to pick a single elapsed_sec to display, which would silently
+// misstate whichever category's real time got dropped. Bound how far apart
+// the two picks are allowed to be before we refuse to collapse at all --
+// within the bound, FormatAgo's own minute-level rounding already blurs a
+// discrepancy this small, so reporting the older (more conservative) of the
+// two is a reasonable single figure rather than a wrong one.
+constexpr double kMaxHistoryElapsedDisagreementSec = 60.0;
+
+bool HistoryTimesCloseEnoughToCollapse(const AdvisoryClause& a, const AdvisoryClause& b)
+{
+    if (!a.elapsed_sec.has_value() || !b.elapsed_sec.has_value()) {
+        return false;
+    }
+    return std::fabs(*a.elapsed_sec - *b.elapsed_sec) <= kMaxHistoryElapsedDisagreementSec;
 }
 
 std::string JoinRunwayIds(const std::vector<std::string>& ids)
@@ -179,9 +203,6 @@ std::string FormatClause(const AdvisoryClause& clause, const RunwayIdFormatter& 
     return {};
 }
 
-constexpr double kPaToInHg = 0.0002953;
-constexpr double kPaToHpa = 0.01;
-
 // Deliberately separate from core::FormatAltimeter: that function's output
 // carries a unit-name suffix ("29.92 inHg", "1013 hPa") meant for a static
 // UI readout, whereas real ATC phraseology never speaks the unit -- it
@@ -254,9 +275,19 @@ std::vector<AdvisoryClause> BuildAdvisoryClauses(const AirportEntry& entry)
 
     const bool sameTier = arrival.tier == departure.tier;
     const bool sameWindSource = arrival.wind_source == departure.wind_source;
-    if (sameTier && sameWindSource && SameRunwaySet(arrival.runway_ids, departure.runway_ids)) {
+    const bool sameRunways = SameRunwaySet(arrival.runway_ids, departure.runway_ids);
+    // kHistory needs an extra check: same tier and same runway set aren't
+    // enough to guarantee the two categories are talking about the same
+    // recent activity, since their elapsed times are resolved independently
+    // (see HistoryTimesCloseEnoughToCollapse above).
+    const bool historyTimesAgree =
+        arrival.tier != AdvisoryTier::kHistory || HistoryTimesCloseEnoughToCollapse(arrival, departure);
+    if (sameTier && sameWindSource && sameRunways && historyTimesAgree) {
         AdvisoryClause combined = arrival;
         combined.category = AdvisoryCategory::kBoth;
+        if (combined.tier == AdvisoryTier::kHistory) {
+            combined.elapsed_sec = std::max(*arrival.elapsed_sec, *departure.elapsed_sec);
+        }
         return {combined};
     }
     return {arrival, departure};
@@ -315,6 +346,16 @@ std::string SpokenRunwayId(const std::string& runwayId)
             break;
     }
     return spoken;
+}
+
+ResolvedAdvisoryText ResolveAdvisoryText(const AirportEntry& entry, PressureUnit pressureUnit)
+{
+    const std::vector<AdvisoryClause> clauses = BuildAdvisoryClauses(entry);
+    ResolvedAdvisoryText text;
+    text.with_wind_and_altimeter =
+        FormatAdvisoryPlainText(clauses, entry.current_wind, entry.altimeter_pa, pressureUnit);
+    text.without_wind_and_altimeter = FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, pressureUnit);
+    return text;
 }
 
 } // namespace trm::core

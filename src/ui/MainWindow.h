@@ -36,11 +36,18 @@ struct DisplayState {
     std::string last_update_utc = "--:--:--";
 
     std::optional<core::AirportEntry> pinned_entry;
+    // Natural-language advisory sentence for pinned_entry, resolved
+    // alongside it -- see core::ResolveAdvisoryText. Always has a value
+    // whenever pinned_entry does; ui::Widgets treats it as optional purely
+    // defensively.
+    std::optional<core::ResolvedAdvisoryText> pinned_advisory_text;
     std::optional<core::PinnedKind> pinned_kind;
     const core::Airport* pinned_airport = nullptr;
 
     std::vector<core::NearbyCandidate> nearby_candidates;
     std::optional<core::AirportEntry> selected_nearby_entry;
+    // Advisory sentence for selected_nearby_entry -- see pinned_advisory_text above.
+    std::optional<core::ResolvedAdvisoryText> selected_nearby_advisory_text;
     const core::Airport* selected_nearby_airport = nullptr;
 
     // History tab: most-recent-first, already windowed/pruned by the

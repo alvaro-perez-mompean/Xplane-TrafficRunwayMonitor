@@ -76,4 +76,26 @@ std::string FormatAdvisorySpoken(const std::vector<AdvisoryClause>& clauses,
 // spoken as its own trailing word, omitted if the runway ID has none.
 std::string SpokenRunwayId(const std::string& runwayId);
 
+// Both plain-text variants RenderAirportCard's Both/Natural-language modes
+// need, precomputed together -- see ResolveAdvisoryText. `with_wind_and_altimeter`
+// is what Natural language mode shows (it has no separate header lines);
+// `without_wind_and_altimeter` is what Both mode shows (its own header
+// Wind:/Altimeter: lines already cover that, so the sentence stays
+// runway-status-only there). Caching both means ui:: can switch which one
+// it renders the instant the display-mode setting changes, without waiting
+// on the next orchestration cycle.
+struct ResolvedAdvisoryText {
+    std::string with_wind_and_altimeter;
+    std::string without_wind_and_altimeter;
+};
+
+// Runs BuildAdvisoryClauses once and FormatAdvisoryPlainText twice (with
+// and without the wind/altimeter tail) for `entry`. This is the entry
+// point the ~1Hz orchestration cycle (Plugin.cpp) calls to populate
+// ui::DisplayState -- per CLAUDE.md's ui/ layering rule, no core::
+// computation (this included) may run from inside ui:: itself, so the
+// result is cached and ui::Widgets only ever picks between the two
+// already-formatted strings.
+ResolvedAdvisoryText ResolveAdvisoryText(const AirportEntry& entry, PressureUnit pressureUnit);
+
 } // namespace trm::core

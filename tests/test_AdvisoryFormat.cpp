@@ -126,6 +126,55 @@ TEST_CASE("BuildAdvisoryClauses: same runway but mismatched tier does NOT collap
     CHECK(clauses[1].tier == AdvisoryTier::kHistory);
 }
 
+TEST_CASE("BuildAdvisoryClauses: same runway kHistory clauses with far-apart elapsed times do NOT collapse",
+          "[AdvisoryFormat]")
+{
+    AirportEntry entry;
+    // Same runway id, but these are two unrelated events (an arrival that
+    // landed 3 minutes ago, a departure that left the same runway 25
+    // minutes ago) -- collapsing would have to drop one of the two real
+    // elapsed times.
+    entry.arrivals.history = RunwaySightingSummary{"09", 1, 180.0, std::nullopt};
+    entry.departures.history = RunwaySightingSummary{"09", 1, 1500.0, std::nullopt};
+
+    const auto clauses = BuildAdvisoryClauses(entry);
+    REQUIRE(clauses.size() == 2);
+    CHECK(clauses[0].category == AdvisoryCategory::kArrival);
+    CHECK(clauses[0].tier == AdvisoryTier::kHistory);
+    CHECK(clauses[0].elapsed_sec == 180.0);
+    CHECK(clauses[1].category == AdvisoryCategory::kDeparture);
+    CHECK(clauses[1].tier == AdvisoryTier::kHistory);
+    CHECK(clauses[1].elapsed_sec == 1500.0);
+}
+
+TEST_CASE("FormatAdvisoryPlainText: same runway kHistory clauses with far-apart elapsed times state each "
+          "category's own time",
+          "[AdvisoryFormat]")
+{
+    AirportEntry entry;
+    entry.arrivals.history = RunwaySightingSummary{"09", 1, 180.0, std::nullopt};
+    entry.departures.history = RunwaySightingSummary{"09", 1, 1500.0, std::nullopt};
+
+    const auto clauses = BuildAdvisoryClauses(entry);
+    const std::string text = FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa);
+    CHECK(text == "Recently landed runway 09 (3m ago), recently departed runway 09 (25m ago).");
+}
+
+TEST_CASE("BuildAdvisoryClauses: same runway kHistory clauses with close elapsed times collapse, using the "
+          "older (conservative) time",
+          "[AdvisoryFormat]")
+{
+    AirportEntry entry;
+    entry.arrivals.history = RunwaySightingSummary{"09", 1, 180.0, std::nullopt};
+    entry.departures.history = RunwaySightingSummary{"09", 1, 210.0, std::nullopt};
+
+    const auto clauses = BuildAdvisoryClauses(entry);
+    REQUIRE(clauses.size() == 1);
+    CHECK(clauses[0].category == AdvisoryCategory::kBoth);
+    CHECK(clauses[0].tier == AdvisoryTier::kHistory);
+    CHECK(clauses[0].elapsed_sec == 210.0);
+}
+
 TEST_CASE("BuildAdvisoryClauses: both categories empty collapses to a single kNone/kBoth clause",
           "[AdvisoryFormat]")
 {

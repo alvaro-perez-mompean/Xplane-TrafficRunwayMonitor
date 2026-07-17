@@ -28,6 +28,7 @@
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
 
+#include "core/AdvisoryFormat.h"
 #include "core/Aggregator.h"
 #include "core/AptDat.h"
 #include "core/EventLog.h"
@@ -349,6 +350,7 @@ void UpdatePinnedEntry(const core::AirportDatabase& db, double lat, double lon,
                                                        g_aggregatorConfig.origin_pin_radius_nm);
     if (!selection.has_value()) {
         g_mainWindow->display.pinned_entry.reset();
+        g_mainWindow->display.pinned_advisory_text.reset();
         g_mainWindow->display.pinned_kind.reset();
         g_mainWindow->display.pinned_airport = nullptr;
         return;
@@ -360,6 +362,8 @@ void UpdatePinnedEntry(const core::AirportDatabase& db, double lat, double lon,
 
     g_mainWindow->display.pinned_entry = core::BuildAirportEntry(selection->icao, distanceNm, airport,
                                                                    g_sightingTracker, inputs, nowSec, g_aggregatorConfig);
+    g_mainWindow->display.pinned_advisory_text =
+        core::ResolveAdvisoryText(*g_mainWindow->display.pinned_entry, g_mainWindow->settings.pressure_unit);
     g_mainWindow->display.pinned_kind = selection->kind;
     g_mainWindow->display.pinned_airport = airport;
 }
@@ -377,6 +381,8 @@ void ResolveSelectedNearbyEntry(const core::AirportDatabase& db, const std::stri
     const core::AirportEntryInputs inputs = ResolveAirportInputs(icao, airport);
     g_mainWindow->display.selected_nearby_entry =
         core::BuildAirportEntry(icao, distanceNm, airport, g_sightingTracker, inputs, nowSec, g_aggregatorConfig);
+    g_mainWindow->display.selected_nearby_advisory_text = core::ResolveAdvisoryText(
+        *g_mainWindow->display.selected_nearby_entry, g_mainWindow->settings.pressure_unit);
     g_mainWindow->display.selected_nearby_airport = airport;
 }
 
@@ -410,6 +416,7 @@ void UpdateNearbyCandidates(const core::AirportDatabase& db, const std::vector<c
     }
 
     display.selected_nearby_entry.reset();
+    display.selected_nearby_advisory_text.reset();
     display.selected_nearby_airport = nullptr;
     for (const auto& candidate : display.nearby_candidates) {
         if (interaction.selected_nearby_icao.has_value() && candidate.icao == *interaction.selected_nearby_icao) {

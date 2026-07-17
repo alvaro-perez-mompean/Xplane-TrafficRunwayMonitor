@@ -16,11 +16,6 @@ std::string FormatAgo(double elapsedSec)
     return buf;
 }
 
-namespace {
-constexpr double kPaToInHg = 0.0002953;
-constexpr double kPaToHpa = 0.01;
-} // namespace
-
 std::string FormatAltimeter(double pressurePa, PressureUnit unit)
 {
     char buf[24];

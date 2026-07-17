@@ -94,7 +94,7 @@ void MainWindow::RenderDashboardTab()
         if (hasPinned) {
             ImGui::TextUnformatted(display.pinned_kind == core::PinnedKind::kOrigin ? "ORIGIN" : "DESTINATION");
             RenderAirportCard(*display.pinned_entry, settings.show_raw_metar, settings.pressure_unit,
-                               settings.advisory_display_mode);
+                               settings.advisory_display_mode, display.pinned_advisory_text);
             ImGui::Spacing();
             RenderRunwayDiagram(display.pinned_airport, &*display.pinned_entry);
             ImGui::Spacing();
@@ -113,7 +113,8 @@ void MainWindow::RenderDashboardTab()
             ImGui::Spacing();
             if (display.selected_nearby_entry.has_value()) {
                 RenderAirportCard(*display.selected_nearby_entry, settings.show_raw_metar, settings.pressure_unit,
-                                   settings.advisory_display_mode, /*showHeader=*/false);
+                                   settings.advisory_display_mode, display.selected_nearby_advisory_text,
+                                   /*showHeader=*/false);
                 ImGui::Spacing();
                 RenderRunwayDiagram(display.selected_nearby_airport, &*display.selected_nearby_entry);
             }
