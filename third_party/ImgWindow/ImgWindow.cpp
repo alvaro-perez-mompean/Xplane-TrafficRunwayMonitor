@@ -711,6 +711,13 @@ ImgWindow::SetWindowTitle(const std::string &title)
 void
 ImgWindow::SetVisible(bool inIsVisible)
 {
+	if (!inIsVisible) {
+		// A caller explicitly hiding the window overrides any deferred
+		// VR re-show still in flight (see moveForVR()) -- otherwise the
+		// next flight-loop cycle would force it visible again right after
+		// the user closed it.
+		mVrReshowPending = false;
+	}
 	if (inIsVisible)
 		moveForVR();
 	if (GetVisible() == inIsVisible) {
@@ -729,6 +736,19 @@ ImgWindow::SetVisible(bool inIsVisible)
 void
 ImgWindow::moveForVR()
 {
+	// If a previous call hid the window to force a VR relocation, this is
+	// the earliest a real frame boundary can have passed since then (this
+	// is only re-entered from the next ~1Hz flight-loop tick or a later
+	// SetVisible() call, never from within the same call stack) -- re-show
+	// it now and let the rest of this function re-evaluate positioning
+	// fresh on the next call.
+	if (mVrReshowPending) {
+		XPLMSetWindowIsVisible(mWindowID, 1);
+		mVrReshowPending = false;
+		XPLMDebugString("ImgWindow: entering VR -- deferred re-show fired\n");
+		return;
+	}
+
 	// if we're trying to display the window, check the state of the VR flag
 	// - if we're VR enabled, explicitly move the window to the VR world.
 	if (XPLMGetDatai(gVrEnabledRef)) {
@@ -754,19 +774,24 @@ ImgWindow::moveForVR()
 				// that's already visible and merely has its positioning
 				// mode flipped here never goes through that transition, so
 				// it apparently never actually gets relocated at all. Force
-				// it by cycling visibility off/on (only meaningful if the
-				// window is visible right now -- a hidden window will pick
-				// up VR placement naturally the next time it's shown, via
-				// SetVisible() itself).
+				// it by cycling visibility off then on -- but *not* within
+				// this same call: an immediate hide+show back-to-back never
+				// gives X-Plane a real frame to observe the transition, and
+				// the window still doesn't appear (confirmed against a real
+				// VR headset -- the immediate-toggle version logged that it
+				// ran but the window stayed invisible). Hide now and defer
+				// the re-show to the next moveForVR() call, one flight-loop
+				// cycle later, which mirrors the manual close/reopen
+				// workaround that does work (it's inherently multi-frame).
 				const bool wasVisible = GetVisible();
 				if (wasVisible) {
 					XPLMSetWindowIsVisible(mWindowID, 0);
-					XPLMSetWindowIsVisible(mWindowID, 1);
+					mVrReshowPending = true;
 				}
 
 				char buf[256];
 				std::snprintf(buf, sizeof(buf),
-					"ImgWindow: entering VR -- requested geometry %dx%d, was visible=%d, recycled visibility=%d\n",
+					"ImgWindow: entering VR -- requested geometry %dx%d, was visible=%d, reshow deferred=%d\n",
 					width, height, wasVisible ? 1 : 0, wasVisible ? 1 : 0);
 				XPLMDebugString(buf);
 			}
