@@ -93,7 +93,8 @@ void MainWindow::RenderDashboardTab()
     } else {
         if (hasPinned) {
             ImGui::TextUnformatted(display.pinned_kind == core::PinnedKind::kOrigin ? "ORIGIN" : "DESTINATION");
-            RenderAirportCard(*display.pinned_entry, settings.show_raw_metar, settings.pressure_unit);
+            RenderAirportCard(*display.pinned_entry, settings.show_raw_metar, settings.pressure_unit,
+                               settings.advisory_display_mode, display.pinned_advisory_text);
             ImGui::Spacing();
             RenderRunwayDiagram(display.pinned_airport, &*display.pinned_entry);
             ImGui::Spacing();
@@ -112,6 +113,7 @@ void MainWindow::RenderDashboardTab()
             ImGui::Spacing();
             if (display.selected_nearby_entry.has_value()) {
                 RenderAirportCard(*display.selected_nearby_entry, settings.show_raw_metar, settings.pressure_unit,
+                                   settings.advisory_display_mode, display.selected_nearby_advisory_text,
                                    /*showHeader=*/false);
                 ImGui::Spacing();
                 RenderRunwayDiagram(display.selected_nearby_airport, &*display.selected_nearby_entry);
@@ -145,6 +147,22 @@ void MainWindow::RenderSettingsTab()
     ImGui::SameLine();
     if (ImGui::RadioButton("hPa", settings.pressure_unit == core::PressureUnit::kHpa)) {
         settings.pressure_unit = core::PressureUnit::kHpa;
+    }
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("Airport card display");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("List", settings.advisory_display_mode == core::AdvisoryDisplayMode::kList)) {
+        settings.advisory_display_mode = core::AdvisoryDisplayMode::kList;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Natural language",
+                            settings.advisory_display_mode == core::AdvisoryDisplayMode::kNaturalLanguage)) {
+        settings.advisory_display_mode = core::AdvisoryDisplayMode::kNaturalLanguage;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Both", settings.advisory_display_mode == core::AdvisoryDisplayMode::kBoth)) {
+        settings.advisory_display_mode = core::AdvisoryDisplayMode::kBoth;
     }
     ImGui::Spacing();
 

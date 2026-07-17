@@ -28,6 +28,9 @@ struct PersistedSettings {
     bool debug_log_runway_matches = false;
     int pressure_unit = 0; // 0 = inHg, 1 = hPa -- mirrors core::PressureUnit's ordering
     bool auto_open_on_startup = false;
+    // 0 = list, 1 = natural language, 2 = both -- mirrors
+    // core::AdvisoryDisplayMode's ordering.
+    int advisory_display_mode = 0;
 };
 
 void SaveSettings(const PersistedSettings& settings);
