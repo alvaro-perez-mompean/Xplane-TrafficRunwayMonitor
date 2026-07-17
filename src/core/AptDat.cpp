@@ -172,4 +172,14 @@ std::optional<double> FindRunwayLengthFt(const Airport& airport, const std::stri
     return std::nullopt;
 }
 
+std::optional<std::string> FindOtherRunwayEndId(const Airport& airport, const std::string& runwayId)
+{
+    for (const RunwayEnd& rwyEnd : airport.runways) {
+        if (rwyEnd.id == runwayId) {
+            return rwyEnd.other_end_id;
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace trm::core

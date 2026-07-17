@@ -47,6 +47,28 @@ AdvisoryClause ResolveCategoryClause(AdvisoryCategory category, const CategoryRe
     return clause;
 }
 
+// Cross-category wind-estimate bias (see BuildAdvisoryClauses's doc
+// comment for the full rationale). `windClause` must already be
+// AdvisoryTier::kWindEstimate; `otherClause` is the already-resolved
+// clause for the other category. Only fires when otherClause resolved to
+// exactly one runway (kActive with a single active runway, or kHistory)
+// and that runway's exact physical opposite end (via
+// core::FindOtherRunwayEndId, not any heading/number-family heuristic)
+// matches the wind estimate's independent pick.
+void ApplyWindEstimateBias(AdvisoryClause& windClause, const AdvisoryClause& otherClause, const Airport* airport)
+{
+    if (airport == nullptr || otherClause.runway_ids.size() != 1) {
+        return;
+    }
+    if (otherClause.tier != AdvisoryTier::kActive && otherClause.tier != AdvisoryTier::kHistory) {
+        return;
+    }
+    const std::optional<std::string> otherEndId = FindOtherRunwayEndId(*airport, otherClause.runway_ids[0]);
+    if (otherEndId.has_value() && windClause.runway_ids.size() == 1 && windClause.runway_ids[0] == *otherEndId) {
+        windClause.runway_ids = otherClause.runway_ids;
+    }
+}
+
 bool SameRunwaySet(const std::vector<std::string>& a, const std::vector<std::string>& b)
 {
     if (a.size() != b.size()) {
@@ -267,11 +289,18 @@ std::string FormatAdvisory(const std::vector<AdvisoryClause>& clauses, const std
 
 } // namespace
 
-std::vector<AdvisoryClause> BuildAdvisoryClauses(const AirportEntry& entry)
+std::vector<AdvisoryClause> BuildAdvisoryClauses(const AirportEntry& entry, const Airport* airport)
 {
     AdvisoryClause arrival = ResolveCategoryClause(AdvisoryCategory::kArrival, entry.arrivals, entry.wind_estimate);
     AdvisoryClause departure =
         ResolveCategoryClause(AdvisoryCategory::kDeparture, entry.departures, entry.wind_estimate);
+
+    if (arrival.tier == AdvisoryTier::kWindEstimate) {
+        ApplyWindEstimateBias(arrival, departure, airport);
+    }
+    if (departure.tier == AdvisoryTier::kWindEstimate) {
+        ApplyWindEstimateBias(departure, arrival, airport);
+    }
 
     const bool sameTier = arrival.tier == departure.tier;
     const bool sameWindSource = arrival.wind_source == departure.wind_source;
@@ -348,9 +377,9 @@ std::string SpokenRunwayId(const std::string& runwayId)
     return spoken;
 }
 
-ResolvedAdvisoryText ResolveAdvisoryText(const AirportEntry& entry, PressureUnit pressureUnit)
+ResolvedAdvisoryText ResolveAdvisoryText(const AirportEntry& entry, PressureUnit pressureUnit, const Airport* airport)
 {
-    const std::vector<AdvisoryClause> clauses = BuildAdvisoryClauses(entry);
+    const std::vector<AdvisoryClause> clauses = BuildAdvisoryClauses(entry, airport);
     ResolvedAdvisoryText text;
     text.with_wind_and_altimeter =
         FormatAdvisoryPlainText(clauses, entry.current_wind, entry.altimeter_pa, pressureUnit);

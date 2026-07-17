@@ -362,8 +362,8 @@ void UpdatePinnedEntry(const core::AirportDatabase& db, double lat, double lon,
 
     g_mainWindow->display.pinned_entry = core::BuildAirportEntry(selection->icao, distanceNm, airport,
                                                                    g_sightingTracker, inputs, nowSec, g_aggregatorConfig);
-    g_mainWindow->display.pinned_advisory_text =
-        core::ResolveAdvisoryText(*g_mainWindow->display.pinned_entry, g_mainWindow->settings.pressure_unit);
+    g_mainWindow->display.pinned_advisory_text = core::ResolveAdvisoryText(
+        *g_mainWindow->display.pinned_entry, g_mainWindow->settings.pressure_unit, airport);
     g_mainWindow->display.pinned_kind = selection->kind;
     g_mainWindow->display.pinned_airport = airport;
 }
@@ -382,7 +382,7 @@ void ResolveSelectedNearbyEntry(const core::AirportDatabase& db, const std::stri
     g_mainWindow->display.selected_nearby_entry =
         core::BuildAirportEntry(icao, distanceNm, airport, g_sightingTracker, inputs, nowSec, g_aggregatorConfig);
     g_mainWindow->display.selected_nearby_advisory_text = core::ResolveAdvisoryText(
-        *g_mainWindow->display.selected_nearby_entry, g_mainWindow->settings.pressure_unit);
+        *g_mainWindow->display.selected_nearby_entry, g_mainWindow->settings.pressure_unit, airport);
     g_mainWindow->display.selected_nearby_airport = airport;
 }
 
