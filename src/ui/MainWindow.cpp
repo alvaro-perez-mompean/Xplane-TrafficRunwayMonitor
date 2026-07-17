@@ -35,6 +35,13 @@ MainWindow::MainWindow(int left, int top, int right, int bottom) : ImgWindow(lef
 {
     SetWindowTitle("Traffic Runway Monitor");
     SetWindowResizingLimits(kMinWindowWidth, kMinWindowHeight, kMaxWindowWidth, kMaxWindowHeight);
+
+    // Must run after the ImgWindow base constructor above, which is what
+    // actually calls ImGui::CreateContext()/SetCurrentContext() -- ApplyTheme()
+    // calls ImGui::GetStyle(), which dereferences the current context, so
+    // calling it any earlier (e.g. from InitFontAtlas(), which runs before
+    // any MainWindow exists) reads a null context and crashes.
+    ApplyTheme();
 }
 
 void MainWindow::InitFontAtlas()

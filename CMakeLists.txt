@@ -73,6 +73,7 @@ add_library(TrafficRunwayMonitor SHARED
     src/sdk/SettingsStore.cpp
     src/ui/MainWindow.cpp
     src/ui/Widgets.cpp
+    src/ui/Theme.cpp
     third_party/LTAPI/LTAPI.cpp
     third_party/ImGui/imgui.cpp
     third_party/ImGui/imgui_draw.cpp
