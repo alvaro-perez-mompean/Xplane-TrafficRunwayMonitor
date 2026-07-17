@@ -133,6 +133,20 @@ AirportDatabase ParseAptDat(std::istream& in)
     return db;
 }
 
+AirportDatabase MergeAirportDatabases(const std::vector<const AirportDatabase*>& databasesInPriorityOrder)
+{
+    AirportDatabase merged;
+    for (const AirportDatabase* db : databasesInPriorityOrder) {
+        if (!db) {
+            continue;
+        }
+        for (const auto& [icao, airport] : *db) {
+            merged.try_emplace(icao, airport); // first (highest-priority) definition wins
+        }
+    }
+    return merged;
+}
+
 std::vector<NearbyAirport> FindNearestAirports(const AirportDatabase& db, double userLatDeg, double userLonDeg,
                                                 double radiusNm)
 {

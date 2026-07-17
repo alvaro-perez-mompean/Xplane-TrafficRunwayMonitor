@@ -531,7 +531,7 @@ PLUGIN_API void XPluginStop(void) {}
 
 PLUGIN_API int XPluginEnable(void)
 {
-    if (std::optional<core::AirportDatabase> db = sdk::LoadDefaultAptDat()) {
+    if (std::optional<core::AirportDatabase> db = sdk::LoadMergedAptDat()) {
         g_airportDatabase = std::move(*db);
     } else {
         sdk::Log(sdk::LogLevel::Error, "could not open the default apt.dat (tried both the XP12 and XP11 paths).");
