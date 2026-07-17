@@ -358,6 +358,17 @@ private:
     int mLastFloatingWidth;
     int mLastFloatingHeight;
 
+    // Set by moveForVR() when it hides the window to force X-Plane to
+    // relocate it into the VR layer (see moveForVR()'s comment) -- the
+    // re-show is deferred to the *next* moveForVR() call (one flight-loop
+    // cycle later) rather than done immediately, since flipping visibility
+    // off then straight back on within the same call apparently doesn't
+    // give X-Plane a real frame boundary to notice the hide->show
+    // transition, and the window never actually gets relocated (confirmed:
+    // the immediate-toggle version still failed to appear in VR even though
+    // its own debug log confirmed the toggle ran).
+    bool mVrReshowPending = false;
+
     XPLMWindowLayer mPreferredLayer;
     
     /** Shall reset the backspace key? (see HandleKeyFuncCB for details) */
