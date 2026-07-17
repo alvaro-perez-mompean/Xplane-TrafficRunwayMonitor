@@ -58,7 +58,7 @@ void MainWindow::buildInterface()
 {
     ImGui::SetWindowFontScale(settings.text_size_scale);
 
-    if (ImGui::BeginTabBar("##trm_tab_bar")) {
+    if (ImGui::BeginTabBar("##trm_tab_bar", ImGuiTabBarFlags_NoTooltip)) {
         if (ImGui::BeginTabItem("Dashboard")) {
             RenderDashboardTab();
             ImGui::EndTabItem();
