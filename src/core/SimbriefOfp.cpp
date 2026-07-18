@@ -280,13 +280,13 @@ SimbriefOriginDestination ParseSimbriefOfp(const std::string& json)
 
     const std::optional<std::string> generalBody = ExtractObjectBody(json, "general");
     const std::optional<std::string> route = generalBody ? ExtractStringField(*generalBody, "route") : std::nullopt;
+    result.origin_planned_runway = originBody ? ExtractStringField(*originBody, "plan_rwy") : std::nullopt;
+    result.destination_planned_runway = destinationBody ? ExtractStringField(*destinationBody, "plan_rwy") : std::nullopt;
+    result.raw_route = route;
     if (result.origin_icao && result.destination_icao && route) {
-        const std::optional<std::string> originRwy =
-            originBody ? ExtractStringField(*originBody, "plan_rwy") : std::nullopt;
-        const std::optional<std::string> destinationRwy =
-            destinationBody ? ExtractStringField(*destinationBody, "plan_rwy") : std::nullopt;
-        result.route_text = FormatAirportRoutePoint(*result.origin_icao, originRwy) + " " + *route + " " +
-                             FormatAirportRoutePoint(*result.destination_icao, destinationRwy);
+        result.route_text = FormatAirportRoutePoint(*result.origin_icao, result.origin_planned_runway) + " " +
+                             *route + " " +
+                             FormatAirportRoutePoint(*result.destination_icao, result.destination_planned_runway);
     }
 
     return result;

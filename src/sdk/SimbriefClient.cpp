@@ -74,6 +74,9 @@ void RunFetch(std::shared_ptr<SimbriefClientSharedState> state, std::string pilo
         state->result.origin_icao.reset();
         state->result.destination_icao.reset();
         state->result.route_text.reset();
+        state->result.origin_planned_runway.reset();
+        state->result.destination_planned_runway.reset();
+        state->result.raw_route.reset();
         state->result.fuel = core::SimbriefFuelPlan{};
         state->result.weights = core::SimbriefWeights{};
         state->result.header = core::SimbriefHeader{};
@@ -153,6 +156,9 @@ void RunFetch(std::shared_ptr<SimbriefClientSharedState> state, std::string pilo
         state->result.origin_icao = parsed.origin_icao;
         state->result.destination_icao = parsed.destination_icao;
         state->result.route_text = parsed.route_text;
+        state->result.origin_planned_runway = parsed.origin_planned_runway;
+        state->result.destination_planned_runway = parsed.destination_planned_runway;
+        state->result.raw_route = parsed.raw_route;
         state->result.fuel = core::ParseSimbriefFuelPlan(body);
         state->result.weights = core::ParseSimbriefWeights(body);
         state->result.header = core::ParseSimbriefHeader(body);
@@ -215,6 +221,9 @@ void SimbriefClient::RequestFetch(const std::string& pilotId)
     state_->result.origin_icao.reset();
     state_->result.destination_icao.reset();
     state_->result.route_text.reset();
+    state_->result.origin_planned_runway.reset();
+    state_->result.destination_planned_runway.reset();
+    state_->result.raw_route.reset();
     state_->result.fuel = core::SimbriefFuelPlan{};
     state_->result.weights = core::SimbriefWeights{};
     state_->result.header = core::SimbriefHeader{};
