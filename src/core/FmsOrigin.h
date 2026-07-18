@@ -34,15 +34,31 @@ std::optional<std::pair<std::string, std::string>> ParseToLissInitPageFromTo(con
 struct ToLissFmsState {
     std::optional<std::string> last_confirmed_origin;
     std::optional<std::string> last_confirmed_destination;
+    // Stamped only when ParseToLissInitPageFromTo actually succeeds -- NOT
+    // on every call/cycle -- so IsFresh() below can tell "still parsing a
+    // live FROM/TO line" apart from "holding a latched value while the
+    // MCDU shows something else" (or a different, non-ToLiss aircraft
+    // entirely). nullopt until the first successful parse.
+    std::optional<double> last_confirmed_at_sec;
 };
 
 // Updates `state` in place with a fresh confirmed FROM/TO if `snapshot`
-// parses (ParseToLissInitPageFromTo); otherwise leaves it untouched --
-// holds the last confirmed value rather than clearing it, since the MCDU
-// mirrors whatever page happens to be on screen and a possibly-stale-but-
-// real value is judged better than flickering to "unknown" every time the
-// page changes elsewhere.
-void UpdateToLissFmsState(ToLissFmsState& state, const ToLissMcduSnapshot& snapshot);
+// parses (ParseToLissInitPageFromTo), stamping last_confirmed_at_sec to
+// `nowSec`; otherwise leaves `state` untouched -- holds the last confirmed
+// value rather than clearing it, since the MCDU mirrors whatever page
+// happens to be on screen and a possibly-stale-but-real value is judged
+// better than flickering to "unknown" every time the page changes
+// elsewhere. Staleness is left to IsFresh() against last_confirmed_at_sec
+// instead.
+void UpdateToLissFmsState(ToLissFmsState& state, const ToLissMcduSnapshot& snapshot, double nowSec);
+
+// Threshold (seconds) past which a source's last confirmed value is
+// considered stale -- see IsFresh().
+constexpr double kFmsFreshnessThresholdSec = 5.0;
+
+// True if `lastConfirmedAtSec` is set and within `thresholdSec` of `nowSec`.
+// False if `lastConfirmedAtSec` is nullopt (never confirmed at all).
+bool IsFresh(std::optional<double> lastConfirmedAtSec, double nowSec, double thresholdSec);
 
 // One native FMS entry's relevant fields (XPLMGetFMSEntryInfo's
 // type/id out-params, already fetched by the caller).
@@ -63,5 +79,18 @@ struct NativeFmsOriginDestination {
 // `entryCount <= 0` (no flight plan programmed) yields both nullopt.
 NativeFmsOriginDestination ResolveNativeFmsOriginDestination(int entryCount, const FmsEntryInfo& originEntry,
                                                                const FmsEntryInfo& destinationEntry);
+
+// Pinned origin/destination (see
+// notes/features/manual-origin-destination-override.md): the effective
+// ICAO for one field this cycle is `sourceIcao` whenever `fresh` (the
+// source wins outright), else `overrideIcao` -- the last-known value
+// (either a previous fresh source read, or a manual ICAO the user typed
+// over it) sticky across staleness, nullopt only if the field has never
+// resolved anything and the user hasn't typed a value either. Pure merge
+// only -- the caller (Plugin.cpp) owns the override's lifecycle: keeping
+// it mirroring `sourceIcao` while fresh, and clearing it (only) on an
+// actual new-flight signal.
+std::optional<std::string> ResolveEffectiveIcao(bool fresh, const std::optional<std::string>& sourceIcao,
+                                                 const std::optional<std::string>& overrideIcao);
 
 } // namespace trm::core

@@ -13,6 +13,7 @@
 // state across a mid-session source switch would silently misattribute
 // one real aircraft's trend/sighting history to a different one.
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -24,6 +25,7 @@
 #include "XPLMDataAccess.h"
 #include "XPLMDisplay.h"
 #include "XPLMMenus.h"
+#include "XPLMPlanes.h"
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
@@ -81,6 +83,24 @@ std::unique_ptr<sdk::TcasSource> g_tcasSource;
 std::unique_ptr<sdk::LtapiSource> g_ltapiSource;
 sdk::FmsOrigin g_fmsOrigin;
 sdk::Weather g_weather;
+
+// The pinned origin/destination (see
+// notes/features/manual-origin-destination-override.md), session-only,
+// never persisted via sdk::SettingsStore. Continuously re-seeded from the
+// live source value every cycle its field is fresh, so it's always ready
+// to carry over -- unchanged -- the instant staleness begins, rather than
+// dropping to blank; the user can then type over it. Cleared only by an
+// actual new-flight signal (XPluginReceiveMessage below), never by
+// staleness alone.
+std::optional<std::string> g_originOverride;
+std::optional<std::string> g_destinationOverride;
+
+// Bumped whenever the pin above is cleared for a new flight -- mirrored
+// into ui::DisplayState::flight_reset_epoch so
+// ui::RenderIcaoOverrideField can force its InputText buffer to follow
+// even when a field's editable state doesn't itself change across the
+// reset (e.g. stale on both the old and new flight).
+int g_flightResetEpoch = 0;
 
 // index 0 unused in both, matching TcasSource/LtapiSource's own slot convention.
 std::vector<SlotAnalysisState> g_tcasSlotStates;
@@ -454,7 +474,40 @@ void RunAnalysisCycle()
     const std::vector<core::NearbyAirport> nearest = core::FindNearestAirports(
         g_airportDatabase, lat, lon, static_cast<double>(g_mainWindow->settings.search_radius_nm));
 
-    const sdk::FmsOriginDestination fms = g_fmsOrigin.Resolve();
+    sdk::FmsOriginDestination fms = g_fmsOrigin.Resolve(nowSec);
+
+    // See g_originOverride's own comment for the sticky-pin/reset design.
+    // Origin and destination unlock independently since the native FMS
+    // path can have one entry present without the other.
+    g_mainWindow->display.origin_editable = !fms.origin_fresh;
+    g_mainWindow->display.destination_editable = !fms.destination_fresh;
+    if (fms.origin_fresh) {
+        g_originOverride = fms.origin_icao;
+    }
+    if (fms.destination_fresh) {
+        g_destinationOverride = fms.destination_icao;
+    }
+    fms.origin_icao = core::ResolveEffectiveIcao(fms.origin_fresh, fms.origin_icao, g_originOverride);
+    fms.destination_icao = core::ResolveEffectiveIcao(fms.destination_fresh, fms.destination_icao, g_destinationOverride);
+    g_mainWindow->display.origin_icao = fms.origin_icao;
+    g_mainWindow->display.destination_icao = fms.destination_icao;
+    g_mainWindow->display.flight_reset_epoch = g_flightResetEpoch;
+
+    // Flight Plan tab validation feedback -- the airport name if the
+    // pinned ICAO resolves in g_airportDatabase, nullopt (rendered as an
+    // "unknown ICAO" warning by RenderIcaoOverrideField) otherwise.
+    g_mainWindow->display.origin_airport_name.reset();
+    if (fms.origin_icao.has_value()) {
+        if (const core::Airport* originAirport = FindAirport(g_airportDatabase, *fms.origin_icao)) {
+            g_mainWindow->display.origin_airport_name = originAirport->name;
+        }
+    }
+    g_mainWindow->display.destination_airport_name.reset();
+    if (fms.destination_icao.has_value()) {
+        if (const core::Airport* destinationAirport = FindAirport(g_airportDatabase, *fms.destination_icao)) {
+            g_mainWindow->display.destination_airport_name = destinationAirport->name;
+        }
+    }
 
     // Extra candidates for runway matching only (not for display): an
     // FMS origin/destination far outside the search radius should still be
@@ -559,6 +612,10 @@ PLUGIN_API int XPluginEnable(void)
     g_mainWindow = std::make_unique<ui::MainWindow>(left, top, left + ui::kDefaultWindowWidth,
                                                       top - ui::kDefaultWindowHeight);
     g_mainWindow->interaction.on_nearby_selection_changed = HandleNearbySelectionChanged;
+    g_mainWindow->interaction.on_origin_override_changed = [](const std::string& icao) { g_originOverride = icao; };
+    g_mainWindow->interaction.on_destination_override_changed = [](const std::string& icao) {
+        g_destinationOverride = icao;
+    };
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
         ui::Settings& settings = g_mainWindow->settings;
@@ -638,4 +695,44 @@ PLUGIN_API void XPluginDisable(void)
     g_menuShowItemIndex = -1;
 }
 
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int, void*) {}
+// See g_originOverride/g_flightResetEpoch's own comments.
+void ResetFlightPlanForNewFlight()
+{
+    g_originOverride.reset();
+    g_destinationOverride.reset();
+    ++g_flightResetEpoch;
+}
+
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int inMessage, void* inParam)
+{
+    // The pinned origin/destination is scoped to the flight it was
+    // resolved/typed for (see notes/features/manual-origin-destination-override.md)
+    // -- staleness alone deliberately does NOT clear it (see
+    // g_originOverride's own comment), so without this handler a value
+    // from the previous flight would keep getting spliced into
+    // fms.origin_icao/destination_icao indefinitely once the new flight's
+    // FMS route also stays empty (never becomes fresh).
+    //
+    // Two triggers, deliberately both: XPLM_MSG_PLANE_LOADED (aircraft
+    // model itself changes -- the original reported bug's case, param is
+    // the plane index, 0 = the user's own plane) and
+    // XPLM_MSG_AIRPORT_LOADED (the user's plane is repositioned at a new
+    // airport -- fires on Start Flight/situation load/replay start even
+    // when the aircraft type is unchanged, e.g. restarting the same ToLiss
+    // for a new route). PLANE_LOADED alone would miss that second case.
+    // Resetting on either is harmless even when redundant (e.g. both firing
+    // for the same restart) -- this is session-only UI state, not anything
+    // that needs debouncing.
+    if (inMessage == XPLM_MSG_AIRPORT_LOADED) {
+        ResetFlightPlanForNewFlight();
+        return;
+    }
+    // XPLM_MSG_PLANE_LOADED's param is the plane index bit-cast to a
+    // pointer, not a real pointer -- reinterpret_cast<intptr_t> reads it
+    // back as the integer X-Plane sent, per XPLMPlugin.h's own comment on
+    // this message.
+    if (inMessage == XPLM_MSG_PLANE_LOADED &&
+        reinterpret_cast<intptr_t>(inParam) == XPLM_USER_AIRCRAFT) {
+        ResetFlightPlanForNewFlight();
+    }
+}

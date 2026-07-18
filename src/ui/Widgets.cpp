@@ -504,4 +504,65 @@ bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candi
     return changed;
 }
 
+void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
+                              const std::optional<std::string>& effectiveIcao,
+                              const std::optional<std::string>& airportName,
+                              const std::function<void(const std::string&)>& onChanged)
+{
+    const bool forcedReset = resetEpoch != state.last_seen_reset_epoch;
+    state.last_seen_reset_epoch = resetEpoch;
+
+    if (!editable || forcedReset) {
+        // See this function's own doc comment (Widgets.h) for when/why.
+        std::snprintf(state.buf, sizeof(state.buf), "%s", effectiveIcao.value_or("").c_str());
+        std::snprintf(state.last_committed_buf, sizeof(state.last_committed_buf), "%s", state.buf);
+    }
+
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
+
+    char widgetId[64];
+    std::snprintf(widgetId, sizeof(widgetId), "##icao_override_%s", label);
+
+    // This vendored ImGui (1.78 WIP, see MainWindow.cpp's own comment on
+    // predating ImGui::SeparatorText) predates ImGui::BeginDisabled/
+    // EndDisabled too -- ImGuiInputTextFlags_ReadOnly plus a dimmed text
+    // color is the equivalent available here.
+    ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsUppercase;
+    if (!editable) {
+        flags |= ImGuiInputTextFlags_ReadOnly;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, editable ? kColorTextPrimary : kColorWaiting);
+    ImGui::PushItemWidth(60.0f);
+    const bool edited = ImGui::InputText(widgetId, state.buf, sizeof(state.buf), flags);
+    ImGui::PopItemWidth();
+    ImGui::PopStyleColor();
+
+    // Escape-on-focus-loss revert -- see this function's own doc comment.
+    if (editable && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape), /*repeat=*/false)) {
+        std::snprintf(state.buf, sizeof(state.buf), "%s", state.last_committed_buf);
+    } else if (edited && editable) {
+        std::snprintf(state.last_committed_buf, sizeof(state.last_committed_buf), "%s", state.buf);
+        if (onChanged) {
+            onChanged(state.buf);
+        }
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+    ImGui::TextUnformatted(editable ? "Editable - no fresh report in 5s+" : "Locked - source reporting");
+    ImGui::PopStyleColor();
+
+    if (effectiveIcao.has_value() && !effectiveIcao->empty()) {
+        if (airportName.has_value()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+            ImGui::TextUnformatted(airportName->c_str());
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
+            ImGui::TextUnformatted("Unknown ICAO - airport not found");
+            ImGui::PopStyleColor();
+        }
+    }
+}
+
 } // namespace trm::ui

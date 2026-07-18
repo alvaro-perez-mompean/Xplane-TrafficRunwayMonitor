@@ -42,7 +42,7 @@ void FmsOrigin::ResolveToLissMcduRefs()
     mcdu1_label1_ref_ = XPLMFindDataRef("AirbusFBW/MCDU1label1w");
 }
 
-FmsOriginDestination FmsOrigin::Resolve()
+FmsOriginDestination FmsOrigin::Resolve(double nowSec)
 {
     ResolveToLissMcduRefs();
 
@@ -52,9 +52,12 @@ FmsOriginDestination FmsOrigin::Resolve()
         snapshot.label1 = ReadStringDataref(mcdu1_label1_ref_);
         snapshot.cont1b = ReadStringDataref(mcdu1_cont1b_ref_);
 
-        core::UpdateToLissFmsState(toliss_state_, snapshot);
+        core::UpdateToLissFmsState(toliss_state_, snapshot, nowSec);
 
-        return FmsOriginDestination{toliss_state_.last_confirmed_origin, toliss_state_.last_confirmed_destination};
+        const bool fresh =
+            core::IsFresh(toliss_state_.last_confirmed_at_sec, nowSec, core::kFmsFreshnessThresholdSec);
+        return FmsOriginDestination{toliss_state_.last_confirmed_origin, toliss_state_.last_confirmed_destination,
+                                     fresh, fresh};
     }
 
     const int entryCount = XPLMCountFMSEntries();
@@ -77,7 +80,8 @@ FmsOriginDestination FmsOrigin::Resolve()
 
     const core::NativeFmsOriginDestination result =
         core::ResolveNativeFmsOriginDestination(entryCount, originEntry, destinationEntry);
-    return FmsOriginDestination{result.origin_icao, result.destination_icao};
+    return FmsOriginDestination{result.origin_icao, result.destination_icao, result.origin_icao.has_value(),
+                                 result.destination_icao.has_value()};
 }
 
 } // namespace trm::sdk

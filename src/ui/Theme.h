@@ -82,18 +82,19 @@ constexpr const char* kIconAltimeter = "\xEF\x98\xA4";    // f624 gauge
 constexpr const char* kIconDeparture = "\xEF\x96\xB0";    // f5b0 plane-departure
 constexpr const char* kIconArrival = "\xEF\x96\xAF";      // f5af plane-arrival
 constexpr const char* kIconNearby = "\xEF\x8F\x85";       // f3c5 location-dot
-constexpr const char* kIconDashboardTab = "\xEF\x81\xB2"; // f072 plane
-constexpr const char* kIconHistoryTab = "\xEF\x87\x9A";   // f1da clock-rotate-left
-constexpr const char* kIconSettingsTab = "\xEF\x80\x93";  // f013 gear
-constexpr const char* kIconDebug = "\xEF\x86\x88";        // f188 bug
+constexpr const char* kIconDashboardTab = "\xEF\x81\xB2";  // f072 plane
+constexpr const char* kIconFlightPlanTab = "\xEF\x93\x97"; // f4d7 route
+constexpr const char* kIconHistoryTab = "\xEF\x87\x9A";    // f1da clock-rotate-left
+constexpr const char* kIconSettingsTab = "\xEF\x80\x93";   // f013 gear
+constexpr const char* kIconDebug = "\xEF\x86\x88";         // f188 bug
 // Settings-tab section headers.
 constexpr const char* kIconDisplaySection = "\xEF\x8E\x90"; // f390 desktop
 constexpr const char* kIconSearchSection = "\xEF\x80\x82";  // f002 magnifying-glass
 constexpr const char* kIconStartupSection = "\xEF\x80\x91"; // f011 power-off
 
-constexpr std::array<unsigned short, 15> kIconGlyphCodepoints = {
+constexpr std::array<unsigned short, 16> kIconGlyphCodepoints = {
     0xF058, 0xF059, 0xF017, 0xF72E, 0xF624, 0xF5B0, 0xF5AF, 0xF3C5, 0xF072, 0xF1DA,
-    0xF013, 0xF188, 0xF390, 0xF002, 0xF011,
+    0xF013, 0xF188, 0xF390, 0xF002, 0xF011, 0xF4D7,
 };
 
 constexpr int kDefaultWindowWidth = 560;
