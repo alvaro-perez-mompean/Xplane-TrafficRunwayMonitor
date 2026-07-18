@@ -36,6 +36,8 @@ struct SimbriefFetchResult {
     SimbriefFetchStatus status = SimbriefFetchStatus::kIdle;
     std::optional<std::string> origin_icao;
     std::optional<std::string> destination_icao;
+    // LIDO-style route line -- see core::SimbriefOriginDestination::route_text.
+    std::optional<std::string> route_text;
     std::string error_message; // meaningful only when status == kError
     // Bumped once per completed fetch (success or error) -- lets Plugin.cpp
     // apply a just-finished fetch's ICAOs into the origin/destination

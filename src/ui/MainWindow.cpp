@@ -254,12 +254,12 @@ void MainWindow::RenderFlightPlanTab()
     ImGui::Spacing();
 
     RenderIcaoOverrideField("Origin", origin_field_state_, display.origin_editable, display.flight_reset_epoch,
-                             display.origin_icao, display.origin_airport_name,
+                             display.origin_override_epoch, display.origin_icao, display.origin_airport_name,
                              interaction.on_origin_override_changed);
     ImGui::Spacing();
     RenderIcaoOverrideField("Destination", destination_field_state_, display.destination_editable,
-                             display.flight_reset_epoch, display.destination_icao, display.destination_airport_name,
-                             interaction.on_destination_override_changed);
+                             display.flight_reset_epoch, display.destination_override_epoch, display.destination_icao,
+                             display.destination_airport_name, interaction.on_destination_override_changed);
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -282,6 +282,12 @@ void MainWindow::RenderFlightPlanTab()
         ImGui::PushStyleColor(ImGuiCol_Text, color);
         ImGui::TextWrapped("%s", display.simbrief_fetch_message.c_str());
         ImGui::PopStyleColor();
+    }
+
+    if (display.simbrief_route_text.has_value()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Route");
+        ImGui::TextWrapped("%s", display.simbrief_route_text->c_str());
     }
 }
 

@@ -47,8 +47,13 @@ Settings).
 
 ## Using it
 
-Open the plugin's window from X-Plane's Plugins menu. It has three tabs:
+Open the plugin's window from X-Plane's Plugins menu. It has four tabs:
 - **Dashboard**: currently-tracked traffic and their live phase/runway match.
+- **Flight Plan**: origin/destination ICAO, editable whenever the native FMS
+  has no matching entry; a "Fetch from Simbrief" button fills them in from
+  your current Simbrief OFP (pilot ID configured once in Settings) and shows
+  its planned route in LIDO-style text (e.g.
+  `LEBL/20 SENIA2J SENIA Z596 NEXAS N975 ADUXO ADUXO3D LEMD/32R`).
 - **History**: confirmed arrival/departure events (icao/runway/category/callsign).
 - **Settings**: display and search options (altimeter unit, airport card
   layout, search radius), plus debug options including logging runway

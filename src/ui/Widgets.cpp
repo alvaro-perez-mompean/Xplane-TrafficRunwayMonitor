@@ -505,12 +505,14 @@ bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candi
 }
 
 void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
-                              const std::optional<std::string>& effectiveIcao,
+                              int overrideEpoch, const std::optional<std::string>& effectiveIcao,
                               const std::optional<std::string>& airportName,
                               const std::function<void(const std::string&)>& onChanged)
 {
-    const bool forcedReset = resetEpoch != state.last_seen_reset_epoch;
+    const bool forcedReset =
+        resetEpoch != state.last_seen_reset_epoch || overrideEpoch != state.last_seen_override_epoch;
     state.last_seen_reset_epoch = resetEpoch;
+    state.last_seen_override_epoch = overrideEpoch;
 
     if (!editable || forcedReset) {
         // See this function's own doc comment (Widgets.h) for when/why.

@@ -91,10 +91,11 @@ constexpr const char* kIconDebug = "\xEF\x86\x88";         // f188 bug
 constexpr const char* kIconDisplaySection = "\xEF\x8E\x90"; // f390 desktop
 constexpr const char* kIconSearchSection = "\xEF\x80\x82";  // f002 magnifying-glass
 constexpr const char* kIconStartupSection = "\xEF\x80\x91"; // f011 power-off
+constexpr const char* kIconArrowRight = "\xEF\x81\xA1";      // f061 arrow-right
 
-constexpr std::array<unsigned short, 16> kIconGlyphCodepoints = {
+constexpr std::array<unsigned short, 17> kIconGlyphCodepoints = {
     0xF058, 0xF059, 0xF017, 0xF72E, 0xF624, 0xF5B0, 0xF5AF, 0xF3C5, 0xF072, 0xF1DA,
-    0xF013, 0xF188, 0xF390, 0xF002, 0xF011, 0xF4D7,
+    0xF013, 0xF188, 0xF390, 0xF002, 0xF011, 0xF4D7, 0xF061,
 };
 
 constexpr int kDefaultWindowWidth = 560;

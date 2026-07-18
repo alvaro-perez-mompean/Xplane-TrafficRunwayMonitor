@@ -81,6 +81,10 @@ core::EventLog g_eventLog;
 // user already cares about rather than a fixed value of its own.
 constexpr double kEventHistoryWindowMultiplier = 2.0;
 
+// How long the Flight Plan tab's "Loaded XXXX -> YYYY" success message stays
+// visible after a fetch completes -- see g_simbriefSuccessMessageShownAtSec.
+constexpr double kSimbriefSuccessMessageTtlSec = 3.0;
+
 std::unique_ptr<sdk::TcasSource> g_tcasSource;
 std::unique_ptr<sdk::LtapiSource> g_ltapiSource;
 sdk::FmsOrigin g_fmsOrigin;
@@ -91,6 +95,21 @@ sdk::SimbriefClient g_simbriefClient;
 // g_originOverride/g_destinationOverride below -- see
 // sdk::SimbriefFetchResult::generation's own comment.
 std::uint64_t g_appliedSimbriefGeneration = 0;
+
+// nowSec of the most recent successful fetch's message -- SimbriefClient::
+// Poll() keeps returning kSuccess indefinitely until the next fetch, so
+// without this the "Loaded..." message would otherwise linger forever
+// instead of clearing after kSimbriefSuccessMessageTtlSec.
+double g_simbriefSuccessMessageShownAtSec = -kSimbriefSuccessMessageTtlSec;
+
+// Generation up through which a finished Simbrief result (kSuccess/kError)
+// is treated as belonging to a previous flight and displayed as kIdle
+// instead -- see RunAnalysisCycle's simbriefResultIsStale. Set to the
+// current generation by ResetFlightPlanForNewFlight(); otherwise
+// SimbriefClient's cached result would keep resurrecting the previous
+// flight's toast/route every cycle indefinitely, since Poll() only changes
+// what it returns on the *next* explicit fetch.
+std::uint64_t g_simbriefDismissedGeneration = 0;
 
 // The pinned origin/destination (see
 // notes/features/manual-origin-destination-override.md), session-only,
@@ -109,6 +128,15 @@ std::optional<std::string> g_destinationOverride;
 // even when a field's editable state doesn't itself change across the
 // reset (e.g. stale on both the old and new flight).
 int g_flightResetEpoch = 0;
+
+// Bumped whenever g_originOverride/g_destinationOverride is set by
+// something other than the user typing into the Flight Plan tab's own
+// field -- currently only a successful Simbrief fetch. Mirrored into
+// ui::DisplayState::origin_override_epoch/destination_override_epoch --
+// see that field's own comment for why this is needed alongside
+// g_flightResetEpoch.
+int g_originOverrideEpoch = 0;
+int g_destinationOverrideEpoch = 0;
 
 // index 0 unused in both, matching TcasSource/LtapiSource's own slot convention.
 std::vector<SlotAnalysisState> g_tcasSlotStates;
@@ -500,6 +528,8 @@ void RunAnalysisCycle()
     g_mainWindow->display.origin_icao = fms.origin_icao;
     g_mainWindow->display.destination_icao = fms.destination_icao;
     g_mainWindow->display.flight_reset_epoch = g_flightResetEpoch;
+    g_mainWindow->display.origin_override_epoch = g_originOverrideEpoch;
+    g_mainWindow->display.destination_override_epoch = g_destinationOverrideEpoch;
 
     // Flight Plan tab's "Fetch from Simbrief" button -- see
     // sdk::SimbriefClient's own comment. Poll() is cheap (mutex + copy),
@@ -509,36 +539,66 @@ void RunAnalysisCycle()
     // (native-FMS-fresh still wins outright) -- picked up on the *next*
     // cycle, same ~1s lag this override design already has elsewhere.
     const sdk::SimbriefFetchResult simbrief = g_simbriefClient.Poll();
-    switch (simbrief.status) {
+    const bool simbriefGenerationChanged = simbrief.generation != g_appliedSimbriefGeneration;
+    if (simbriefGenerationChanged && simbrief.status == sdk::SimbriefFetchStatus::kSuccess) {
+        g_simbriefSuccessMessageShownAtSec = nowSec;
+    }
+    // A finished fetch (kSuccess/kError) whose generation predates the last
+    // flight reset belongs to the previous flight -- fall through to kIdle
+    // instead of resurrecting a stale toast/route every cycle. kFetching
+    // has no generation of its own yet, so it's always current regardless.
+    const bool simbriefResultIsStale =
+        (simbrief.status == sdk::SimbriefFetchStatus::kSuccess || simbrief.status == sdk::SimbriefFetchStatus::kError) &&
+        simbrief.generation <= g_simbriefDismissedGeneration;
+    const sdk::SimbriefFetchStatus effectiveSimbriefStatus =
+        simbriefResultIsStale ? sdk::SimbriefFetchStatus::kIdle : simbrief.status;
+    switch (effectiveSimbriefStatus) {
         case sdk::SimbriefFetchStatus::kIdle:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kIdle;
             g_mainWindow->display.simbrief_fetch_message.clear();
+            g_mainWindow->display.simbrief_route_text.reset();
             break;
         case sdk::SimbriefFetchStatus::kFetching:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kFetching;
             g_mainWindow->display.simbrief_fetch_message = "Fetching...";
+            // simbrief_route_text deliberately left untouched -- keep
+            // showing the last successful route while a re-fetch is in
+            // flight rather than flashing it away.
             break;
         case sdk::SimbriefFetchStatus::kSuccess:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kSuccess;
-            g_mainWindow->display.simbrief_fetch_message =
-                "Loaded " + simbrief.origin_icao.value_or("----") + " -> " + simbrief.destination_icao.value_or("----");
+            if (nowSec - g_simbriefSuccessMessageShownAtSec < kSimbriefSuccessMessageTtlSec) {
+                g_mainWindow->display.simbrief_fetch_message = "Loaded " + simbrief.origin_icao.value_or("----") +
+                    " " + ui::kIconArrowRight + " " + simbrief.destination_icao.value_or("----");
+            } else {
+                g_mainWindow->display.simbrief_fetch_message.clear();
+            }
+            g_mainWindow->display.simbrief_route_text = simbrief.route_text;
             break;
         case sdk::SimbriefFetchStatus::kError:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kError;
             g_mainWindow->display.simbrief_fetch_message = simbrief.error_message;
+            // simbrief_route_text left untouched -- a failed re-fetch
+            // (e.g. transient network blip) shouldn't wipe out the last
+            // known-good route.
             break;
     }
-    if (simbrief.generation != g_appliedSimbriefGeneration) {
+    if (simbriefGenerationChanged) {
         g_appliedSimbriefGeneration = simbrief.generation;
         if (simbrief.status == sdk::SimbriefFetchStatus::kSuccess) {
             // Same plumbing manual typing already uses -- just fills in the
             // override. fms.origin_fresh/destination_fresh (native FMS)
-            // still wins every cycle above regardless.
+            // still wins every cycle above regardless. Bumping the
+            // override epoch alongside is what makes an editable (no fresh
+            // native-FMS entry) field's InputText buffer actually pick this
+            // up -- see ui::DisplayState::origin_override_epoch.
             if (simbrief.origin_icao.has_value()) {
                 g_originOverride = simbrief.origin_icao;
+                ++g_originOverrideEpoch;
             }
             if (simbrief.destination_icao.has_value()) {
                 g_destinationOverride = simbrief.destination_icao;
+                ++g_destinationOverrideEpoch;
             }
         }
     }
@@ -750,12 +810,32 @@ PLUGIN_API void XPluginDisable(void)
     g_menuShowItemIndex = -1;
 }
 
-// See g_originOverride/g_flightResetEpoch's own comments.
+// See g_originOverride/g_flightResetEpoch's own comments. Also dismisses
+// the Simbrief fetch display state (status/message/route) -- without this,
+// a previous flight's "Loaded KJFK -> KLAX" toast or (worse, since it's not
+// time-limited) its route line would otherwise linger into the new flight,
+// since SimbriefClient::Poll() keeps returning the same cached result until
+// the user explicitly fetches again. g_simbriefDismissedGeneration is what
+// actually suppresses it (see RunAnalysisCycle's simbriefResultIsStale) --
+// the immediate display clear here just avoids a one-cycle flash of the
+// stale content before the next RunAnalysisCycle tick applies that.
+//
+// Called from XPluginReceiveMessage, which the SDK can invoke before this
+// plugin's first XPluginEnable() and after XPluginDisable() (broadcast
+// messages aren't gated on enabled state) -- g_mainWindow is only live
+// between those two calls, so every g_mainWindow access here must stay
+// behind this guard, same as RunAnalysisCycle's own.
 void ResetFlightPlanForNewFlight()
 {
     g_originOverride.reset();
     g_destinationOverride.reset();
     ++g_flightResetEpoch;
+    g_simbriefDismissedGeneration = g_simbriefClient.Poll().generation;
+    if (g_mainWindow) {
+        g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kIdle;
+        g_mainWindow->display.simbrief_fetch_message.clear();
+        g_mainWindow->display.simbrief_route_text.reset();
+    }
 }
 
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int inMessage, void* inParam)

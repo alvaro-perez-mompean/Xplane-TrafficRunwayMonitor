@@ -114,6 +114,7 @@ struct IcaoOverrideFieldState {
     char buf[5] = "";
     char last_committed_buf[5] = "";
     int last_seen_reset_epoch = 0;
+    int last_seen_override_epoch = 0;
 };
 
 // Flight Plan tab: a 4-char, uppercase ICAO ImGui::InputText. Read-only
@@ -121,11 +122,16 @@ struct IcaoOverrideFieldState {
 // While editable, the buffer is normally left alone for the user to type
 // in -- staleness alone does NOT blank it, since Plugin.cpp keeps the
 // pinned value sticky across a source going quiet -- except when
-// `resetEpoch` differs from what this call site last saw
-// (`state.last_seen_reset_epoch`), meaning a new flight just cleared the
-// pin, which force-mirrors it back to `effectiveIcao` once. Each
-// successful edit calls `onChanged` immediately (same synchronous-callback
-// pattern as RenderNearbyAirportSelector's caller).
+// `resetEpoch` or `overrideEpoch` differs from what this call site last saw
+// (`state.last_seen_reset_epoch`/`last_seen_override_epoch`), which
+// force-mirrors the buffer back to `effectiveIcao` once. `resetEpoch`
+// changes when a new flight just cleared the pin; `overrideEpoch` changes
+// when something other than the user's own typing set the pin's value
+// (e.g. a Simbrief fetch) -- without the latter, a field left editable
+// (no fresh native-FMS entry) would never show a value filled in that way,
+// since it wasn't typed into this buffer and reaching this field isn't a
+// flight reset. Each successful edit calls `onChanged` immediately (same
+// synchronous-callback pattern as RenderNearbyAirportSelector's caller).
 //
 // Also repairs a real ImGui/XPLM interaction: third_party/ImgWindow's
 // HandleKeyFuncCB simulates an Escape keypress whenever this plugin window
@@ -139,7 +145,7 @@ struct IcaoOverrideFieldState {
 // `airportName` (nullopt renders as an "unknown ICAO" warning) render
 // underneath.
 void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
-                              const std::optional<std::string>& effectiveIcao,
+                              int overrideEpoch, const std::optional<std::string>& effectiveIcao,
                               const std::optional<std::string>& airportName,
                               const std::function<void(const std::string&)>& onChanged);
 

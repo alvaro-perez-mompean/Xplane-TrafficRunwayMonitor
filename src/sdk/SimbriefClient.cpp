@@ -1,6 +1,7 @@
 #include "sdk/SimbriefClient.h"
 
 #include <cctype>
+#include <exception>
 #include <mutex>
 
 #include "core/SimbriefOfp.h"
@@ -72,6 +73,7 @@ void RunFetch(std::shared_ptr<SimbriefClientSharedState> state, std::string pilo
         state->result.status = SimbriefFetchStatus::kError;
         state->result.origin_icao.reset();
         state->result.destination_icao.reset();
+        state->result.route_text.reset();
         state->result.error_message = message;
         ++state->result.generation;
     };
@@ -129,18 +131,31 @@ void RunFetch(std::shared_ptr<SimbriefClientSharedState> state, std::string pilo
         return;
     }
 
-    const core::SimbriefOriginDestination parsed = core::ParseSimbriefOfp(body);
-    std::lock_guard<std::mutex> lock(state->mutex);
-    if (!parsed.origin_icao.has_value() && !parsed.destination_icao.has_value()) {
-        state->result.status = SimbriefFetchStatus::kError;
-        state->result.error_message = "could not find origin/destination in Simbrief response";
-    } else {
-        state->result.status = SimbriefFetchStatus::kSuccess;
-        state->result.error_message.clear();
+    // This runs on a detached worker thread (see RequestFetch below) --
+    // an exception escaping a std::thread's entry function is fatal to the
+    // whole process (std::terminate -> abort()), regardless of its source
+    // or of how well-behaved core::ParseSimbriefOfp itself is documented to
+    // be. Catching here turns any such surprise into an ordinary fetch
+    // error instead of taking down X-Plane.
+    try {
+        const core::SimbriefOriginDestination parsed = core::ParseSimbriefOfp(body);
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (!parsed.origin_icao.has_value() && !parsed.destination_icao.has_value()) {
+            state->result.status = SimbriefFetchStatus::kError;
+            state->result.error_message = "could not find origin/destination in Simbrief response";
+        } else {
+            state->result.status = SimbriefFetchStatus::kSuccess;
+            state->result.error_message.clear();
+        }
+        state->result.origin_icao = parsed.origin_icao;
+        state->result.destination_icao = parsed.destination_icao;
+        state->result.route_text = parsed.route_text;
+        ++state->result.generation;
+    } catch (const std::exception& e) {
+        finishWithError(std::string("failed to parse Simbrief response: ") + e.what());
+    } catch (...) {
+        finishWithError("failed to parse Simbrief response (unknown error)");
     }
-    state->result.origin_icao = parsed.origin_icao;
-    state->result.destination_icao = parsed.destination_icao;
-    ++state->result.generation;
 }
 
 } // namespace
@@ -193,6 +208,7 @@ void SimbriefClient::RequestFetch(const std::string& pilotId)
     state_->result.status = SimbriefFetchStatus::kError;
     state_->result.origin_icao.reset();
     state_->result.destination_icao.reset();
+    state_->result.route_text.reset();
     state_->result.error_message = "Simbrief fetch is not supported on this platform";
     ++state_->result.generation;
 #endif

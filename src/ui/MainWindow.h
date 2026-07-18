@@ -86,6 +86,14 @@ struct DisplayState {
     // to force its InputText buffer to follow even when a field's editable
     // state doesn't itself change across the reset.
     int flight_reset_epoch = 0;
+    // Bumped by Plugin.cpp whenever origin_icao/destination_icao's pinned
+    // value is set by something other than the user typing into this same
+    // field -- currently only a successful Simbrief fetch. Same
+    // force-resync purpose as flight_reset_epoch, just for a value change
+    // that isn't a flight reset (see RenderIcaoOverrideField). Independent
+    // per field since a fetch can fill one without the other.
+    int origin_override_epoch = 0;
+    int destination_override_epoch = 0;
 
     // Flight Plan tab: resolved every cycle in Plugin.cpp from
     // sdk::SimbriefClient::Poll() -- kIdle until the user has pressed
@@ -93,7 +101,17 @@ struct DisplayState {
     SimbriefFetchUiStatus simbrief_fetch_status = SimbriefFetchUiStatus::kIdle;
     // Human-readable detail: e.g. "Loaded KJFK -> KLAX" on kSuccess, the
     // error text on kError, "Fetching..." on kFetching, empty on kIdle.
+    // Auto-cleared a few seconds after a success (see Plugin.cpp's
+    // kSimbriefSuccessMessageTtlSec) so it reads as a toast, not a
+    // permanent status line.
     std::string simbrief_fetch_message;
+    // LIDO-style route line from the last successful fetch (see
+    // core::SimbriefOriginDestination::route_text) -- unlike
+    // simbrief_fetch_message above, this is NOT time-limited: it stays
+    // displayed until the next fetch or a new flight (nullopt), since it's
+    // reference text the user may want to keep reading, not a transient
+    // confirmation toast.
+    std::optional<std::string> simbrief_route_text;
 };
 
 // User-adjustable settings. The orchestration cycle reads
