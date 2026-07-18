@@ -104,24 +104,43 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
 // placeholder line instead of an empty table when `events` is empty.
 void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events);
 
-// Flight Plan tab: a 4-char, uppercase ICAO ImGui::InputText. While
-// `editable` is false, mirrors `effectiveIcao` (the live source value) every
-// frame and is read-only -- it isn't a manual entry in that state, so no
-// callback fires. The instant `editable` flips true (detected via
-// `wasEditable`, caller-owned so the transition survives across frames),
-// the buffer is mirrored from `effectiveIcao` exactly once more -- normally
-// blank at that point, since Plugin.cpp has nothing fresh and no override
-// yet -- so the field doesn't keep showing the old locked ICAO as if it
-// were still in effect. Every frame after that (while still editable and
-// not the unlock frame) the buffer is left alone for the user to type in;
-// each edit calls `onChanged` immediately with the buffer's current content
-// (same synchronous-callback pattern as RenderNearbyAirportSelector's
-// caller), no separate "confirm"/blur step. A one-line dim status
-// explaining why the field is locked/editable renders underneath.
-// `buf`/`bufSize` is the caller-owned InputText buffer -- ImGui itself is
-// immediate-mode and doesn't own text-editing state across frames.
-void RenderIcaoOverrideField(const char* label, char* buf, std::size_t bufSize, bool editable, bool& wasEditable,
+// Caller-owned persistent state for one RenderIcaoOverrideField call site
+// -- ImGui is immediate-mode and doesn't own text-editing state itself,
+// and a plain function-local static wouldn't distinguish the origin call
+// site from the destination one. `buf` is the live ImGui::InputText
+// buffer; `last_committed_buf` and `last_seen_reset_epoch` back the two
+// mechanisms documented on RenderIcaoOverrideField below.
+struct IcaoOverrideFieldState {
+    char buf[5] = "";
+    char last_committed_buf[5] = "";
+    int last_seen_reset_epoch = 0;
+};
+
+// Flight Plan tab: a 4-char, uppercase ICAO ImGui::InputText. Read-only
+// and mirrors `effectiveIcao` every frame while `editable` is false.
+// While editable, the buffer is normally left alone for the user to type
+// in -- staleness alone does NOT blank it, since Plugin.cpp keeps the
+// pinned value sticky across a source going quiet -- except when
+// `resetEpoch` differs from what this call site last saw
+// (`state.last_seen_reset_epoch`), meaning a new flight just cleared the
+// pin, which force-mirrors it back to `effectiveIcao` once. Each
+// successful edit calls `onChanged` immediately (same synchronous-callback
+// pattern as RenderNearbyAirportSelector's caller).
+//
+// Also repairs a real ImGui/XPLM interaction: third_party/ImgWindow's
+// HandleKeyFuncCB simulates an Escape keypress whenever this plugin window
+// loses X-Plane keyboard focus (e.g. clicking into the 3D world instead of
+// pressing Enter), and ImGui's InputText treats Escape as "cancel edit",
+// silently reverting the buffer to its pre-activation content despite
+// still reporting the edit as accepted. `state.last_committed_buf`
+// recovers the actually-typed value in that case.
+//
+// A one-line dim status explaining why the field is locked/editable, plus
+// `airportName` (nullopt renders as an "unknown ICAO" warning) render
+// underneath.
+void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
                               const std::optional<std::string>& effectiveIcao,
+                              const std::optional<std::string>& airportName,
                               const std::function<void(const std::string&)>& onChanged);
 
 // Nearby-airport selector: a combo box listing every candidate as

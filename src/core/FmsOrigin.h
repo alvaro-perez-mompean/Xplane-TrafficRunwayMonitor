@@ -80,14 +80,16 @@ struct NativeFmsOriginDestination {
 NativeFmsOriginDestination ResolveNativeFmsOriginDestination(int entryCount, const FmsEntryInfo& originEntry,
                                                                const FmsEntryInfo& destinationEntry);
 
-// Manual origin/destination override (see
+// Pinned origin/destination (see
 // notes/features/manual-origin-destination-override.md): the effective
 // ICAO for one field this cycle is `sourceIcao` whenever `fresh` (the
-// source wins outright, ignoring any standing override), else
-// `overrideIcao` (nullopt if the user hasn't typed one for this field
-// yet). Pure merge only -- the caller (Plugin.cpp) owns clearing the
-// override once `fresh` is true again, since that's a stateful side
-// effect this function has no state to perform.
+// source wins outright), else `overrideIcao` -- the last-known value
+// (either a previous fresh source read, or a manual ICAO the user typed
+// over it) sticky across staleness, nullopt only if the field has never
+// resolved anything and the user hasn't typed a value either. Pure merge
+// only -- the caller (Plugin.cpp) owns the override's lifecycle: keeping
+// it mirroring `sourceIcao` while fresh, and clearing it (only) on an
+// actual new-flight signal.
 std::optional<std::string> ResolveEffectiveIcao(bool fresh, const std::optional<std::string>& sourceIcao,
                                                  const std::optional<std::string>& overrideIcao);
 

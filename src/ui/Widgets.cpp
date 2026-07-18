@@ -504,23 +504,18 @@ bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candi
     return changed;
 }
 
-void RenderIcaoOverrideField(const char* label, char* buf, std::size_t bufSize, bool editable, bool& wasEditable,
+void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
                               const std::optional<std::string>& effectiveIcao,
+                              const std::optional<std::string>& airportName,
                               const std::function<void(const std::string&)>& onChanged)
 {
-    const bool justUnlocked = editable && !wasEditable;
-    wasEditable = editable;
+    const bool forcedReset = resetEpoch != state.last_seen_reset_epoch;
+    state.last_seen_reset_epoch = resetEpoch;
 
-    if (!editable || justUnlocked) {
-        // Mirror the live/effective value rather than whatever the buffer
-        // held before: while locked, a relocked field always shows the
-        // fresh source value, never a stale typed one; on the exact frame
-        // it unlocks, it must drop the old locked ICAO too (effectiveIcao
-        // is normally blank right then, since Plugin.cpp has nothing fresh
-        // and no override yet) so the field doesn't keep showing an ICAO
-        // that's no longer actually in effect. Every other editable frame
-        // leaves buf alone so the user's typing isn't stomped.
-        std::snprintf(buf, bufSize, "%s", effectiveIcao.value_or("").c_str());
+    if (!editable || forcedReset) {
+        // See this function's own doc comment (Widgets.h) for when/why.
+        std::snprintf(state.buf, sizeof(state.buf), "%s", effectiveIcao.value_or("").c_str());
+        std::snprintf(state.last_committed_buf, sizeof(state.last_committed_buf), "%s", state.buf);
     }
 
     ImGui::TextUnformatted(label);
@@ -539,17 +534,35 @@ void RenderIcaoOverrideField(const char* label, char* buf, std::size_t bufSize, 
     }
     ImGui::PushStyleColor(ImGuiCol_Text, editable ? kColorTextPrimary : kColorWaiting);
     ImGui::PushItemWidth(60.0f);
-    const bool edited = ImGui::InputText(widgetId, buf, bufSize, flags);
+    const bool edited = ImGui::InputText(widgetId, state.buf, sizeof(state.buf), flags);
     ImGui::PopItemWidth();
     ImGui::PopStyleColor();
 
-    if (edited && editable && onChanged) {
-        onChanged(buf);
+    // Escape-on-focus-loss revert -- see this function's own doc comment.
+    if (editable && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape), /*repeat=*/false)) {
+        std::snprintf(state.buf, sizeof(state.buf), "%s", state.last_committed_buf);
+    } else if (edited && editable) {
+        std::snprintf(state.last_committed_buf, sizeof(state.last_committed_buf), "%s", state.buf);
+        if (onChanged) {
+            onChanged(state.buf);
+        }
     }
 
     ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
     ImGui::TextUnformatted(editable ? "Editable - no fresh report in 5s+" : "Locked - source reporting");
     ImGui::PopStyleColor();
+
+    if (effectiveIcao.has_value() && !effectiveIcao->empty()) {
+        if (airportName.has_value()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+            ImGui::TextUnformatted(airportName->c_str());
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
+            ImGui::TextUnformatted("Unknown ICAO - airport not found");
+            ImGui::PopStyleColor();
+        }
+    }
 }
 
 } // namespace trm::ui

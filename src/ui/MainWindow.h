@@ -12,6 +12,7 @@
 #include "core/AptDat.h"
 #include "core/EventLog.h"
 #include "core/Format.h"
+#include "ui/Widgets.h"
 
 // The plugin's single ImGui dashboard window: real tabs (Dashboard/
 // Settings/History), airport info as cards, colored status badges, a
@@ -62,13 +63,24 @@ struct DisplayState {
     // origin_fresh/destination_fresh. Independent per field.
     bool origin_editable = false;
     bool destination_editable = false;
-    // The effective ICAO currently in play for each field -- the live
-    // source value while locked, or the user's override once one is set
-    // (Plugin.cpp resolves which; ui:: never computes it, only mirrors it
-    // into the read-only field while locked -- see
-    // ui::RenderIcaoOverrideField).
+    // The effective (pinned) ICAO for each field -- the live source value
+    // while locked, or the last-known value (previous source read, or a
+    // manual entry) once stale, sticky until the user edits it or a new
+    // flight starts. Plugin.cpp resolves which; ui:: never computes it,
+    // only mirrors it into the field -- see ui::RenderIcaoOverrideField.
     std::optional<std::string> origin_icao;
     std::optional<std::string> destination_icao;
+    // Airport name for origin_icao/destination_icao if it resolves in
+    // g_airportDatabase, nullopt otherwise (rendered as an "unknown ICAO"
+    // warning -- lets the user confirm a typed ICAO is a real airport).
+    std::optional<std::string> origin_airport_name;
+    std::optional<std::string> destination_airport_name;
+    // Bumped by Plugin.cpp (see g_flightResetEpoch) exactly when a new
+    // flight starts and the pinned origin/destination get cleared --
+    // RenderIcaoOverrideField compares this against its own last-seen copy
+    // to force its InputText buffer to follow even when a field's editable
+    // state doesn't itself change across the reset.
+    int flight_reset_epoch = 0;
 };
 
 // User-adjustable settings. The orchestration cycle reads
@@ -157,18 +169,13 @@ private:
     void RenderSettingsTab();
     void RenderHistoryTab();
 
-    // Caller-owned ImGui::InputText buffers for the Flight Plan tab (see
-    // RenderIcaoOverrideField, Widgets.cpp) -- ImGui is immediate-mode and
-    // doesn't own text-editing state itself, and a plain function-local
-    // static wouldn't distinguish the origin call site from the
-    // destination one, so these live here instead. 4 ICAO chars + NUL.
-    char origin_override_buf_[5] = "";
-    char destination_override_buf_[5] = "";
-    // Previous frame's editable state per field, so RenderIcaoOverrideField
-    // can detect the lock->unlock transition and re-mirror the buffer
-    // exactly once on that edge (see its own comment).
-    bool origin_was_editable_ = false;
-    bool destination_was_editable_ = false;
+    // Caller-owned persistent state for the Flight Plan tab's two
+    // RenderIcaoOverrideField call sites (see IcaoOverrideFieldState,
+    // Widgets.h) -- ImGui is immediate-mode and doesn't own text-editing
+    // state itself, and a plain function-local static wouldn't distinguish
+    // the origin call site from the destination one.
+    IcaoOverrideFieldState origin_field_state_;
+    IcaoOverrideFieldState destination_field_state_;
 };
 
 } // namespace trm::ui
