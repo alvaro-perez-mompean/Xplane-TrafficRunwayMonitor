@@ -53,6 +53,10 @@ Open the plugin's window from X-Plane's Plugins menu. It has three tabs:
 - **Settings**: traffic source selection and other runtime options, including
   optional debug logging of runway matches to `Log.txt`.
 
+| Dashboard | History | Settings |
+|-----------|---------|----------|
+| ![Dashboard tab](docs/images/dashboard.jpg) | ![History tab](docs/images/history.jpg) | ![Settings tab](docs/images/settings.jpg) |
+
 ## How the matching/confirmation logic works
 
 Each cycle, every tracked aircraft is checked against the runway geometry of
