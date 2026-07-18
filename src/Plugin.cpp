@@ -559,11 +559,15 @@ std::vector<std::string> RunwayCandidates(const core::Airport* airport)
 // Loads `cache` for `icao` if it isn't already loaded for that exact ICAO --
 // real filesystem I/O (sdk::LoadCifpForAirport), so this only actually runs
 // on an ICAO change, not every ~1Hz cycle. A nullopt `icao` clears the
-// cache (no origin/destination resolved this cycle).
+// cache (no origin/destination resolved this cycle). ICAO codes are always
+// 4 characters -- anything else (e.g. a partial "LEB" while the user is
+// still typing a manual override, which fires onChanged per keystroke, see
+// RenderIcaoOverrideField) is rejected without touching disk, so typing an
+// override doesn't do a blocking filesystem open on every flight-loop tick.
 void EnsureCifpLoaded(const std::optional<std::string>& icao, std::optional<core::CifpProcedures>& cache,
                        std::string& cachedIcao)
 {
-    if (!icao.has_value()) {
+    if (!icao.has_value() || icao->size() != 4) {
         cache.reset();
         cachedIcao.clear();
         return;
