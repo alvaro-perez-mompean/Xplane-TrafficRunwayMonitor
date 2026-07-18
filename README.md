@@ -39,11 +39,11 @@ is available:
 
 It also picks up your own flight plan's origin and destination, so those
 airports stay pinned and get checked even if they fall outside the normal
-search radius. On a ToLiss Airbus, it reads the origin/destination straight
-off the MCDU; for every other aircraft, it falls back to X-Plane's own
-native FMS flight plan entries. Support for reading other add-on
-FMS/MCDU implementations directly (FlyByWire, Zibo, etc.) beyond the
-native X-Plane FMS entries is a possible future addition.
+search radius. It reads these straight from X-Plane's own native FMS flight
+plan entries; for aircraft or situations where that isn't populated, the
+Flight Plan tab lets you type them in manually, or fetch them in one click
+from your current Simbrief flight plan (pilot ID configured once in
+Settings).
 
 ## Using it
 

@@ -46,6 +46,7 @@
 #include "sdk/Log.h"
 #include "sdk/LtapiSource.h"
 #include "sdk/SettingsStore.h"
+#include "sdk/SimbriefClient.h"
 #include "sdk/TcasSource.h"
 #include "sdk/Weather.h"
 
@@ -84,6 +85,12 @@ std::unique_ptr<sdk::TcasSource> g_tcasSource;
 std::unique_ptr<sdk::LtapiSource> g_ltapiSource;
 sdk::FmsOrigin g_fmsOrigin;
 sdk::Weather g_weather;
+sdk::SimbriefClient g_simbriefClient;
+
+// Generation last applied from g_simbriefClient.Poll() into
+// g_originOverride/g_destinationOverride below -- see
+// sdk::SimbriefFetchResult::generation's own comment.
+std::uint64_t g_appliedSimbriefGeneration = 0;
 
 // The pinned origin/destination (see
 // notes/features/manual-origin-destination-override.md), session-only,
@@ -494,6 +501,48 @@ void RunAnalysisCycle()
     g_mainWindow->display.destination_icao = fms.destination_icao;
     g_mainWindow->display.flight_reset_epoch = g_flightResetEpoch;
 
+    // Flight Plan tab's "Fetch from Simbrief" button -- see
+    // sdk::SimbriefClient's own comment. Poll() is cheap (mutex + copy),
+    // safe every cycle. A freshly-completed success is applied into the
+    // override exactly once via the generation counter, then flows through
+    // the same core::ResolveEffectiveIcao precedence as a manual edit would
+    // (native-FMS-fresh still wins outright) -- picked up on the *next*
+    // cycle, same ~1s lag this override design already has elsewhere.
+    const sdk::SimbriefFetchResult simbrief = g_simbriefClient.Poll();
+    switch (simbrief.status) {
+        case sdk::SimbriefFetchStatus::kIdle:
+            g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kIdle;
+            g_mainWindow->display.simbrief_fetch_message.clear();
+            break;
+        case sdk::SimbriefFetchStatus::kFetching:
+            g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kFetching;
+            g_mainWindow->display.simbrief_fetch_message = "Fetching...";
+            break;
+        case sdk::SimbriefFetchStatus::kSuccess:
+            g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kSuccess;
+            g_mainWindow->display.simbrief_fetch_message =
+                "Loaded " + simbrief.origin_icao.value_or("----") + " -> " + simbrief.destination_icao.value_or("----");
+            break;
+        case sdk::SimbriefFetchStatus::kError:
+            g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kError;
+            g_mainWindow->display.simbrief_fetch_message = simbrief.error_message;
+            break;
+    }
+    if (simbrief.generation != g_appliedSimbriefGeneration) {
+        g_appliedSimbriefGeneration = simbrief.generation;
+        if (simbrief.status == sdk::SimbriefFetchStatus::kSuccess) {
+            // Same plumbing manual typing already uses -- just fills in the
+            // override. fms.origin_fresh/destination_fresh (native FMS)
+            // still wins every cycle above regardless.
+            if (simbrief.origin_icao.has_value()) {
+                g_originOverride = simbrief.origin_icao;
+            }
+            if (simbrief.destination_icao.has_value()) {
+                g_destinationOverride = simbrief.destination_icao;
+            }
+        }
+    }
+
     // Flight Plan tab validation feedback -- the airport name if the
     // pinned ICAO resolves in g_airportDatabase, nullopt (rendered as an
     // "unknown ICAO" warning by RenderIcaoOverrideField) otherwise.
@@ -617,6 +666,9 @@ PLUGIN_API int XPluginEnable(void)
     g_mainWindow->interaction.on_destination_override_changed = [](const std::string& icao) {
         g_destinationOverride = icao;
     };
+    g_mainWindow->interaction.on_simbrief_fetch_requested = []() {
+        g_simbriefClient.RequestFetch(g_mainWindow->settings.simbrief_pilot_id);
+    };
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
         ui::Settings& settings = g_mainWindow->settings;
@@ -639,6 +691,7 @@ PLUGIN_API int XPluginEnable(void)
                 settings.advisory_display_mode = core::AdvisoryDisplayMode::kList;
                 break;
         }
+        settings.simbrief_pilot_id = persisted->simbrief_pilot_id;
     }
 
     g_mainWindow->SetVisible(g_mainWindow->settings.auto_open_on_startup);
@@ -678,6 +731,7 @@ PLUGIN_API void XPluginDisable(void)
                 persisted.advisory_display_mode = 0;
                 break;
         }
+        persisted.simbrief_pilot_id = settings.simbrief_pilot_id;
         sdk::SaveSettings(persisted);
     }
 

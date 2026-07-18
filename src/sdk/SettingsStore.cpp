@@ -43,6 +43,7 @@ void SaveSettings(const PersistedSettings& settings)
     out << "pressure_unit=" << settings.pressure_unit << '\n';
     out << "auto_open_on_startup=" << (settings.auto_open_on_startup ? 1 : 0) << '\n';
     out << "advisory_display_mode=" << settings.advisory_display_mode << '\n';
+    out << "simbrief_pilot_id=" << settings.simbrief_pilot_id << '\n';
 }
 
 std::optional<PersistedSettings> LoadSettings()
@@ -78,6 +79,8 @@ std::optional<PersistedSettings> LoadSettings()
             settings.auto_open_on_startup = (value == "1");
         } else if (key == "advisory_display_mode") {
             settings.advisory_display_mode = std::atoi(value.c_str());
+        } else if (key == "simbrief_pilot_id") {
+            settings.simbrief_pilot_id = value;
         }
     }
     return settings;

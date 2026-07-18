@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <string>
 
 // Persists the plugin's user-adjustable settings as a
 // flat "key=value" text file, so they survive across X-Plane restarts
@@ -30,6 +31,10 @@ struct PersistedSettings {
     // 0 = list, 1 = natural language, 2 = both -- mirrors
     // core::AdvisoryDisplayMode's ordering.
     int advisory_display_mode = 0;
+    // Simbrief "pilot ID" used by the Flight Plan tab's "Fetch from
+    // Simbrief" button. A public numeric account ID, not a credential --
+    // fine to store in plaintext like every other setting here.
+    std::string simbrief_pilot_id;
 };
 
 void SaveSettings(const PersistedSettings& settings);

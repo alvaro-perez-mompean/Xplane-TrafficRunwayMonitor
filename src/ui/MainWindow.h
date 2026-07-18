@@ -26,6 +26,12 @@
 
 namespace trm::ui {
 
+// Outcome of the last (or in-flight) Simbrief OFP fetch -- a ui-local
+// mirror of sdk::SimbriefFetchStatus, translated by Plugin.cpp each cycle
+// so ui:: doesn't need to depend on sdk:: at the header level (same idea as
+// ui::Settings::pressure_unit mirroring sdk::PersistedSettings' plain int).
+enum class SimbriefFetchUiStatus { kIdle, kFetching, kSuccess, kError };
+
 // Everything the ~1Hz orchestration cycle resolves, read (not computed)
 // by buildInterface(). `pinned_airport`/`selected_nearby_airport` are apt.dat lookups for the
 // runway-compass diagram's geometry (headings), which AirportEntry itself
@@ -56,9 +62,8 @@ struct DisplayState {
     std::vector<core::RunwayEventSummary> recent_events;
 
     // Flight Plan tab: whether the origin/destination ICAO field is
-    // currently editable, i.e. its source (ToLiss MCDU or native FMS) has
-    // gone stale (no fresh confirmation in the last few seconds -- see
-    // core::IsFresh, sdk::FmsOriginDestination). Set every cycle in
+    // currently editable, i.e. the native FMS has no matching entry this
+    // cycle (see sdk::FmsOriginDestination). Set every cycle in
     // Plugin.cpp's RunAnalysisCycle from sdk::FmsOriginDestination's
     // origin_fresh/destination_fresh. Independent per field.
     bool origin_editable = false;
@@ -81,6 +86,14 @@ struct DisplayState {
     // to force its InputText buffer to follow even when a field's editable
     // state doesn't itself change across the reset.
     int flight_reset_epoch = 0;
+
+    // Flight Plan tab: resolved every cycle in Plugin.cpp from
+    // sdk::SimbriefClient::Poll() -- kIdle until the user has pressed
+    // "Fetch from Simbrief" this session.
+    SimbriefFetchUiStatus simbrief_fetch_status = SimbriefFetchUiStatus::kIdle;
+    // Human-readable detail: e.g. "Loaded KJFK -> KLAX" on kSuccess, the
+    // error text on kError, "Fetching..." on kFetching, empty on kIdle.
+    std::string simbrief_fetch_message;
 };
 
 // User-adjustable settings. The orchestration cycle reads
@@ -111,6 +124,12 @@ struct Settings {
     // default since it's high-volume, meant for diagnosing runway-matching
     // issues rather than everyday use.
     bool debug_log_runway_matches = false;
+
+    // Simbrief "pilot ID" used by the Flight Plan tab's "Fetch from
+    // Simbrief" button (api/xml.fetcher.php?userid=<id>&json=1). Stored/
+    // rendered as text even though it's numeric -- no int parsing needed.
+    // Empty until the user sets it; persisted like every other field here.
+    std::string simbrief_pilot_id;
 };
 
 // UI-only interaction state (not analysis data). A real ImGui tab bar
@@ -134,6 +153,12 @@ struct InteractionState {
     // origin_editable/destination_editable above.
     std::function<void(const std::string&)> on_origin_override_changed;
     std::function<void(const std::string&)> on_destination_override_changed;
+
+    // Flight Plan tab: fired the moment the user presses "Fetch from
+    // Simbrief". Plugin.cpp starts the async fetch
+    // (sdk::SimbriefClient::RequestFetch) -- ui:: does no I/O itself, per
+    // CLAUDE.md's ui/ layering rule.
+    std::function<void()> on_simbrief_fetch_requested;
 };
 
 class MainWindow : public ImgWindow {
@@ -176,6 +201,12 @@ private:
     // the origin call site from the destination one.
     IcaoOverrideFieldState origin_field_state_;
     IcaoOverrideFieldState destination_field_state_;
+
+    // Settings tab's Simbrief Pilot ID field: ImGui::InputText needs a raw
+    // char buffer, not std::string, so this mirrors settings.simbrief_pilot_id
+    // while being edited (synced in on activation, written back on edit --
+    // same idea as IcaoOverrideFieldState::buf above).
+    char simbrief_pilot_id_buf_[32] = "";
 };
 
 } // namespace trm::ui
