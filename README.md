@@ -53,7 +53,12 @@ Open the plugin's window from X-Plane's Plugins menu. It has four tabs:
   has no matching entry; a "Fetch from Simbrief" button fills them in from
   your current Simbrief OFP (pilot ID configured once in Settings) and shows
   its planned route in LIDO-style text (e.g.
-  `LEBL/20 SENIA2J SENIA Z596 NEXAS N975 ADUXO ADUXO3D LEMD/32R`).
+  `LEBL/20 SENIA2J SENIA Z596 NEXAS N975 ADUXO ADUXO3D LEMD/32R`). A
+  Procedures block recommends a departure SID and arrival STAR/approach that
+  actually match the runway in use, parsed straight from X-Plane's own CIFP
+  navdata rather than trusting Simbrief's tentative OFP runway guess, with
+  each pick freely overridable and the runway(s) currently active for
+  confirmed real traffic highlighted for reference.
 - **History**: confirmed arrival/departure events (icao/runway/category/callsign).
 - **Settings**: display and search options (altimeter unit, airport card
   layout, search radius), plus debug options including logging runway

@@ -23,6 +23,20 @@ struct SimbriefOriginDestination {
     // drops that airport's "/RWY" suffix rather than nulling the whole
     // thing out.
     std::optional<std::string> route_text;
+    // Simbrief's own planned runway for each end ("plan_rwy") -- same
+    // tentative, pre-departure caveat as route_text above. Used only to
+    // seed the Flight Plan tab's departure/arrival runway selector's
+    // initial value (core::Cifp.h), never treated as confirmed. Nullopt if
+    // Simbrief hadn't assigned one yet.
+    std::optional<std::string> origin_planned_runway;
+    std::optional<std::string> destination_planned_runway;
+    // The raw "general.route" field verbatim -- SID/airway/waypoint/STAR
+    // tokens only, no ICAO/runway prefixes (route_text above is this same
+    // string embedded in a LIDO-style display line). Kept separately so
+    // core::ExtractDepartureAnchorFix/ExtractArrivalAnchorFix (Cifp.h) can
+    // tokenize it directly instead of having to strip route_text's own
+    // formatting back off.
+    std::optional<std::string> raw_route;
 };
 
 // Extracts "icao_code" out of the top-level "origin"/"destination" objects,

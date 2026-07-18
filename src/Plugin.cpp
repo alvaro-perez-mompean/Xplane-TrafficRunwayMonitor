@@ -13,6 +13,7 @@
 // state across a mid-session source switch would silently misattribute
 // one real aircraft's trend/sighting history to a different one.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +34,7 @@
 #include "core/AdvisoryFormat.h"
 #include "core/Aggregator.h"
 #include "core/AptDat.h"
+#include "core/Cifp.h"
 #include "core/EventLog.h"
 #include "core/FmsOrigin.h"
 #include "core/PhaseClassifier.h"
@@ -42,6 +44,7 @@
 #include "core/WindEstimate.h"
 
 #include "sdk/AptDatLoader.h"
+#include "sdk/CifpLoader.h"
 #include "sdk/FmsOrigin.h"
 #include "sdk/Log.h"
 #include "sdk/LtapiSource.h"
@@ -137,6 +140,48 @@ int g_flightResetEpoch = 0;
 // g_flightResetEpoch.
 int g_originOverrideEpoch = 0;
 int g_destinationOverrideEpoch = 0;
+
+// Flight Plan tab, Procedures section: last-known raw route/planned-runway
+// figures from a Simbrief fetch -- same not-time-limited lifetime as
+// ui::DisplayState::simbrief_route_text (reset on kIdle/new flight, left
+// untouched on kFetching/kError, replaced on kSuccess). Kept as plain
+// globals rather than in ui::DisplayState since ui:: never renders these
+// directly -- they only feed core::ExtractDepartureAnchorFix/
+// ExtractArrivalAnchorFix and the runway-selector defaults below.
+std::optional<std::string> g_simbriefRawRoute;
+std::optional<std::string> g_simbriefOriginPlannedRunway;
+std::optional<std::string> g_simbriefDestinationPlannedRunway;
+
+// User-overridable procedure selections (Flight Plan tab's Procedures
+// section) -- "auto but overridable", same spirit as g_originOverride/
+// g_destinationOverride: nullopt means "not yet picked", in which case
+// ResolveProcedureSelections seeds a default every cycle; once set, a
+// selection is left alone even if the candidate list it came from changes,
+// until ResetFlightPlanForNewFlight or an origin/destination ICAO change
+// invalidates it (see g_departureSelectionsIcao/g_arrivalSelectionsIcao).
+std::optional<std::string> g_selectedDepartureRunway;
+std::optional<std::string> g_selectedArrivalRunway;
+std::optional<std::string> g_selectedSid;
+std::optional<std::string> g_selectedStar;
+std::optional<std::string> g_selectedApproach;
+
+// The ICAO g_selectedDepartureRunway/g_selectedSid (resp.
+// g_selectedArrivalRunway/g_selectedStar/g_selectedApproach) were last
+// resolved for -- an origin/destination ICAO change (a manual retype, not
+// necessarily a full new-flight reset) invalidates the old picks, since a
+// runway/SID id from one airport is generally meaningless at another.
+std::string g_departureSelectionsIcao;
+std::string g_arrivalSelectionsIcao;
+
+// CIFP data for whichever ICAO it was last loaded for -- reloaded only on
+// an actual ICAO change (see EnsureCifpLoaded), not every cycle, since it's
+// real filesystem I/O. nullopt covers both "not loaded yet" and "loaded,
+// but this airport has no CIFP coverage at all" -- see
+// sdk::LoadCifpForAirport's own comment.
+std::optional<core::CifpProcedures> g_originCifp;
+std::string g_originCifpIcao;
+std::optional<core::CifpProcedures> g_destinationCifp;
+std::string g_destinationCifpIcao;
 
 // index 0 unused in both, matching TcasSource/LtapiSource's own slot convention.
 std::vector<SlotAnalysisState> g_tcasSlotStates;
@@ -495,6 +540,188 @@ void HandleNearbySelectionChanged(const std::string& icao)
     ResolveSelectedNearbyEntry(g_airportDatabase, icao, distanceNm, XPLMGetElapsedTime());
 }
 
+// Every runway id an airport has (apt.dat already lists each physical end
+// separately, e.g. "09" and "27" as distinct entries), sorted for a stable
+// combo-box order. Empty if `airport` is null (unknown ICAO).
+std::vector<std::string> RunwayCandidates(const core::Airport* airport)
+{
+    std::vector<std::string> ids;
+    if (airport == nullptr) {
+        return ids;
+    }
+    for (const core::RunwayEnd& rwy : airport->runways) {
+        ids.push_back(rwy.id);
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+// Loads `cache` for `icao` if it isn't already loaded for that exact ICAO --
+// real filesystem I/O (sdk::LoadCifpForAirport), so this only actually runs
+// on an ICAO change, not every ~1Hz cycle. A nullopt `icao` clears the
+// cache (no origin/destination resolved this cycle). ICAO codes are always
+// 4 characters -- anything else (e.g. a partial "LEB" while the user is
+// still typing a manual override, which fires onChanged per keystroke, see
+// RenderIcaoOverrideField) is rejected without touching disk, so typing an
+// override doesn't do a blocking filesystem open on every flight-loop tick.
+void EnsureCifpLoaded(const std::optional<std::string>& icao, std::optional<core::CifpProcedures>& cache,
+                       std::string& cachedIcao)
+{
+    if (!icao.has_value() || icao->size() != 4) {
+        cache.reset();
+        cachedIcao.clear();
+        return;
+    }
+    if (*icao == cachedIcao) {
+        return;
+    }
+    cachedIcao = *icao;
+    cache = sdk::LoadCifpForAirport(*icao);
+}
+
+// Flight Plan tab's Procedures section: recomputes runway/SID/STAR/approach
+// candidates and the display summary every cycle from the current origin/
+// destination + Simbrief route, applying a default selection only when the
+// user hasn't already picked one for this airport (see
+// g_selectedDepartureRunway's own comment on the "auto but overridable"
+// design).
+void ResolveProcedureSelections(const sdk::FmsOriginDestination& fms, double nowSec)
+{
+    ui::DisplayState& display = g_mainWindow->display;
+
+    const std::string originIcao = fms.origin_icao.value_or(std::string());
+    const std::string destinationIcao = fms.destination_icao.value_or(std::string());
+
+    if (originIcao != g_departureSelectionsIcao) {
+        g_departureSelectionsIcao = originIcao;
+        g_selectedDepartureRunway.reset();
+        g_selectedSid.reset();
+    }
+    if (destinationIcao != g_arrivalSelectionsIcao) {
+        g_arrivalSelectionsIcao = destinationIcao;
+        g_selectedArrivalRunway.reset();
+        g_selectedStar.reset();
+        g_selectedApproach.reset();
+    }
+
+    EnsureCifpLoaded(fms.origin_icao, g_originCifp, g_originCifpIcao);
+    EnsureCifpLoaded(fms.destination_icao, g_destinationCifp, g_destinationCifpIcao);
+
+    const core::Airport* originAirport = fms.origin_icao ? FindAirport(g_airportDatabase, *fms.origin_icao) : nullptr;
+    const core::Airport* destinationAirport =
+        fms.destination_icao ? FindAirport(g_airportDatabase, *fms.destination_icao) : nullptr;
+
+    display.departure_runway_candidates = RunwayCandidates(originAirport);
+    display.arrival_runway_candidates = RunwayCandidates(destinationAirport);
+
+    // Which runway(s) are actually active right now (confirmed-traffic tier
+    // only, core::CategoryResult::active) -- so a Simbrief-planned runway
+    // that's no longer in use stands out in the selectors above rather than
+    // silently being wrong. history/wind_estimate are irrelevant here and
+    // discarded.
+    const double historyWindowSec = g_aggregatorConfig.active_window_sec * g_aggregatorConfig.history_window_multiplier;
+    display.active_departure_runways.clear();
+    if (fms.origin_icao.has_value() && originAirport != nullptr) {
+        const core::CategoryResult departures =
+            core::BuildCategoryResult(g_sightingTracker.FindSightings(*fms.origin_icao, core::SightingCategory::kDeparture),
+                                       g_aggregatorConfig.active_window_sec, historyWindowSec, nowSec, originAirport);
+        for (const core::RunwaySightingSummary& s : departures.active) {
+            display.active_departure_runways.push_back(s.runway_id);
+        }
+    }
+    display.active_arrival_runways.clear();
+    if (fms.destination_icao.has_value() && destinationAirport != nullptr) {
+        const core::CategoryResult arrivals = core::BuildCategoryResult(
+            g_sightingTracker.FindSightings(*fms.destination_icao, core::SightingCategory::kArrival),
+            g_aggregatorConfig.active_window_sec, historyWindowSec, nowSec, destinationAirport);
+        for (const core::RunwaySightingSummary& s : arrivals.active) {
+            display.active_arrival_runways.push_back(s.runway_id);
+        }
+    }
+
+    // Departure runway: default to Simbrief's own plan_rwy if it's a real
+    // runway at this airport, else just the first candidate -- something
+    // has to be selected for SID matching to run at all, and either default
+    // is freely overridable afterward.
+    if (!g_selectedDepartureRunway.has_value()) {
+        if (g_simbriefOriginPlannedRunway.has_value() &&
+            std::find(display.departure_runway_candidates.begin(), display.departure_runway_candidates.end(),
+                       *g_simbriefOriginPlannedRunway) != display.departure_runway_candidates.end()) {
+            g_selectedDepartureRunway = g_simbriefOriginPlannedRunway;
+        } else if (!display.departure_runway_candidates.empty()) {
+            g_selectedDepartureRunway = display.departure_runway_candidates.front();
+        }
+    }
+    if (!g_selectedArrivalRunway.has_value()) {
+        if (g_simbriefDestinationPlannedRunway.has_value() &&
+            std::find(display.arrival_runway_candidates.begin(), display.arrival_runway_candidates.end(),
+                       *g_simbriefDestinationPlannedRunway) != display.arrival_runway_candidates.end()) {
+            g_selectedArrivalRunway = g_simbriefDestinationPlannedRunway;
+        } else if (!display.arrival_runway_candidates.empty()) {
+            g_selectedArrivalRunway = display.arrival_runway_candidates.front();
+        }
+    }
+    display.selected_departure_runway = g_selectedDepartureRunway;
+    display.selected_arrival_runway = g_selectedArrivalRunway;
+
+    // SID: anchor fix comes from Simbrief's raw route (nullopt if no fetch
+    // yet) -- no route, no CIFP data, or no selected runway all mean no
+    // candidates rather than a guess.
+    display.sid_candidates.clear();
+    display.sid_anchor_fix.reset();
+    if (g_simbriefRawRoute.has_value() && g_originCifp.has_value() && g_selectedDepartureRunway.has_value()) {
+        display.sid_anchor_fix = core::ExtractDepartureAnchorFix(*g_simbriefRawRoute, g_originCifp->sids,
+                                                                   *g_selectedDepartureRunway);
+        if (display.sid_anchor_fix.has_value()) {
+            display.sid_candidates =
+                core::FindSidsForRunwayFix(g_originCifp->sids, *g_selectedDepartureRunway, *display.sid_anchor_fix);
+        }
+    }
+    if (!g_selectedSid.has_value() && !display.sid_candidates.empty()) {
+        g_selectedSid = display.sid_candidates.front();
+    }
+    display.selected_sid = g_selectedSid;
+
+    // STAR: runway-independent (see core::FindStarsForFix's own comment).
+    display.star_candidates.clear();
+    display.star_anchor_fix.reset();
+    if (g_simbriefRawRoute.has_value() && g_destinationCifp.has_value()) {
+        display.star_anchor_fix = core::ExtractArrivalAnchorFix(*g_simbriefRawRoute, g_destinationCifp->stars);
+        if (display.star_anchor_fix.has_value()) {
+            display.star_candidates = core::FindStarsForFix(g_destinationCifp->stars, *display.star_anchor_fix);
+        }
+    }
+    if (!g_selectedStar.has_value() && !display.star_candidates.empty()) {
+        g_selectedStar = display.star_candidates.front();
+    }
+    display.selected_star = g_selectedStar;
+
+    // Approach: ident encodes the runway directly, no anchor fix needed.
+    // Reformatted into the same shape a real FMS/MCDU shows (see
+    // core::FormatApproachIdentForDisplay's own comment) -- the raw CIFP
+    // ident is only ever a matching key, never shown to the user, so
+    // g_selectedApproach holds the formatted string throughout rather than
+    // needing a separate raw/display pair.
+    display.approach_candidates.clear();
+    if (g_destinationCifp.has_value() && g_selectedArrivalRunway.has_value()) {
+        for (const std::string& ident : core::FindApproachesForRunway(g_destinationCifp->approaches,
+                                                                        *g_selectedArrivalRunway)) {
+            display.approach_candidates.push_back(core::FormatApproachIdentForDisplay(ident));
+        }
+    }
+    if (!g_selectedApproach.has_value() && !display.approach_candidates.empty()) {
+        g_selectedApproach = display.approach_candidates.front();
+    }
+    display.selected_approach = g_selectedApproach;
+
+    display.procedure_summary_text.reset();
+    if (fms.origin_icao.has_value() && fms.destination_icao.has_value()) {
+        display.procedure_summary_text = core::FormatProcedureSummary(
+            *fms.origin_icao, g_selectedDepartureRunway, g_selectedSid, g_selectedStar, *fms.destination_icao,
+            g_selectedArrivalRunway, g_selectedApproach);
+    }
+}
+
 // The ~1Hz tick that resolves every input and rebuilds the window's
 // display state.
 void RunAnalysisCycle()
@@ -560,14 +787,18 @@ void RunAnalysisCycle()
             g_mainWindow->display.simbrief_fuel = core::SimbriefFuelPlan{};
             g_mainWindow->display.simbrief_weights = core::SimbriefWeights{};
             g_mainWindow->display.simbrief_header = core::SimbriefHeader{};
+            g_simbriefRawRoute.reset();
+            g_simbriefOriginPlannedRunway.reset();
+            g_simbriefDestinationPlannedRunway.reset();
             break;
         case sdk::SimbriefFetchStatus::kFetching:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kFetching;
             g_mainWindow->display.simbrief_fetch_message = "Fetching...";
             // simbrief_route_text/simbrief_fuel/simbrief_weights/
-            // simbrief_header deliberately left untouched -- keep showing
-            // the last successful fetch while a re-fetch is in flight
-            // rather than flashing it away.
+            // simbrief_header/g_simbriefRawRoute/g_simbriefOrigin(Destination)
+            // PlannedRunway deliberately left untouched -- keep showing the
+            // last successful fetch while a re-fetch is in flight rather
+            // than flashing it away.
             break;
         case sdk::SimbriefFetchStatus::kSuccess:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kSuccess;
@@ -581,6 +812,9 @@ void RunAnalysisCycle()
             g_mainWindow->display.simbrief_fuel = simbrief.fuel;
             g_mainWindow->display.simbrief_weights = simbrief.weights;
             g_mainWindow->display.simbrief_header = simbrief.header;
+            g_simbriefRawRoute = simbrief.raw_route;
+            g_simbriefOriginPlannedRunway = simbrief.origin_planned_runway;
+            g_simbriefDestinationPlannedRunway = simbrief.destination_planned_runway;
             break;
         case sdk::SimbriefFetchStatus::kError:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kError;
@@ -626,6 +860,8 @@ void RunAnalysisCycle()
             g_mainWindow->display.destination_airport_name = destinationAirport->name;
         }
     }
+
+    ResolveProcedureSelections(fms, nowSec);
 
     // Extra candidates for runway matching only (not for display): an
     // FMS origin/destination far outside the search radius should still be
@@ -737,6 +973,17 @@ PLUGIN_API int XPluginEnable(void)
     g_mainWindow->interaction.on_simbrief_fetch_requested = []() {
         g_simbriefClient.RequestFetch(g_mainWindow->settings.simbrief_pilot_id);
     };
+    g_mainWindow->interaction.on_departure_runway_changed = [](const std::string& runway) {
+        g_selectedDepartureRunway = runway;
+        g_selectedSid.reset(); // the previous runway's SID pick is meaningless from a different runway
+    };
+    g_mainWindow->interaction.on_arrival_runway_changed = [](const std::string& runway) {
+        g_selectedArrivalRunway = runway;
+        g_selectedApproach.reset(); // approach idents are runway-specific -- see FindApproachesForRunway
+    };
+    g_mainWindow->interaction.on_sid_changed = [](const std::string& sid) { g_selectedSid = sid; };
+    g_mainWindow->interaction.on_star_changed = [](const std::string& star) { g_selectedStar = star; };
+    g_mainWindow->interaction.on_approach_changed = [](const std::string& approach) { g_selectedApproach = approach; };
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
         ui::Settings& settings = g_mainWindow->settings;
@@ -839,6 +1086,24 @@ void ResetFlightPlanForNewFlight()
     g_originOverride.reset();
     g_destinationOverride.reset();
     ++g_flightResetEpoch;
+
+    // Procedures section (Flight Plan tab) is scoped to the flight it was
+    // resolved for, same as the origin/destination pin above -- without
+    // this, a repeat departure from the same ICAO would carry over the
+    // previous flight's runway/SID/STAR/approach picks even though
+    // RunAnalysisCycle's own ICAO-change check wouldn't catch it (the ICAO
+    // hasn't changed, only the flight has). g_departureSelectionsIcao/
+    // g_arrivalSelectionsIcao are deliberately left alone -- clearing them
+    // too would just make ResolveProcedureSelections redo the same
+    // ICAO-unchanged check and reach the same reset outcome next cycle.
+    g_selectedDepartureRunway.reset();
+    g_selectedArrivalRunway.reset();
+    g_selectedSid.reset();
+    g_selectedStar.reset();
+    g_selectedApproach.reset();
+    g_simbriefRawRoute.reset();
+    g_simbriefOriginPlannedRunway.reset();
+    g_simbriefDestinationPlannedRunway.reset();
     // Poll().generation only bumps when a fetch *completes* (kSuccess/
     // kError) -- kFetching leaves it unchanged. So a fetch still in flight
     // right now hasn't been counted yet; dismissing only through its

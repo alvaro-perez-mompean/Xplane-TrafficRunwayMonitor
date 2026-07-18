@@ -186,6 +186,25 @@ void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, b
 bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candidates,
                                   std::optional<std::string>& selectedIcao);
 
+// Flight Plan tab Procedures section: a labeled combo box over `candidates`
+// (plain idents, e.g. runway ids or SID/STAR/approach names -- already
+// resolved by the orchestration cycle). Shows `selected` verbatim, or a dim
+// "--" placeholder when nothing's selected/no candidates exist. Same
+// mutate-by-reference, return-true-if-changed contract as
+// RenderNearbyAirportSelector above -- the caller fires its own on_*_changed
+// hook when this returns true.
+//
+// `activeIds` (only meaningful for the runway selectors -- empty for
+// SID/STAR/approach) marks entries currently active for real traffic
+// (core::CategoryResult::active, via ui::DisplayState::
+// active_departure_runways/active_arrival_runways): a checkmark + the same
+// green used for the confirmed tier elsewhere (kColorConfirmed), both in
+// the dropdown list and the collapsed preview when the current selection is
+// one of them.
+bool RenderProcedureSelector(const char* label, const std::vector<std::string>& candidates,
+                               std::optional<std::string>& selected,
+                               const std::vector<std::string>& activeIds = {});
+
 // Generic labeled preset combo box (Options/Settings tab). Returns true
 // and sets *outNewValue if the user
 // picked a different preset than currentValue this frame.

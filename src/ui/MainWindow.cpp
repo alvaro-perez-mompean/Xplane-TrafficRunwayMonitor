@@ -294,10 +294,70 @@ void MainWindow::RenderFlightPlanTab()
     }
 
     ImGui::Spacing();
+    RenderProceduresSection();
+
+    if (display.procedure_summary_text.has_value()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Using");
+        ImGui::TextWrapped("%s", display.procedure_summary_text->c_str());
+    }
+
+    ImGui::Spacing();
     RenderSimbriefFuelPlan(display.simbrief_fuel);
 
     ImGui::Spacing();
     RenderSimbriefWeights(display.simbrief_weights, display.simbrief_fuel);
+}
+
+// Departure (runway + SID) and arrival (runway + STAR + approach) procedure
+// selectors -- each combo is auto-preselected by the orchestration cycle
+// (core::FindSidsForRunwayFix/FindStarsForFix/FindApproachesForRunway) but
+// always user-overridable, same "auto but overridable" spirit as the ICAO
+// override fields above. The "matched via" hints show which route waypoint
+// the SID/STAR match was made against, so an unexpected pick is easy to
+// diagnose rather than a black box.
+void MainWindow::RenderProceduresSection()
+{
+    RenderSectionHeader(kIconFlightPlanTab, "Procedures");
+
+    ImGui::Text("%s Departure", kIconDeparture);
+    if (RenderProcedureSelector("Dep RW", display.departure_runway_candidates, display.selected_departure_runway,
+                                 display.active_departure_runways) &&
+        display.selected_departure_runway.has_value() && interaction.on_departure_runway_changed) {
+        interaction.on_departure_runway_changed(*display.selected_departure_runway);
+    }
+    ImGui::SameLine();
+    if (RenderProcedureSelector("SID", display.sid_candidates, display.selected_sid) &&
+        display.selected_sid.has_value() && interaction.on_sid_changed) {
+        interaction.on_sid_changed(*display.selected_sid);
+    }
+    if (display.sid_anchor_fix.has_value()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+        ImGui::Text("matched via %s", display.sid_anchor_fix->c_str());
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("%s Arrival", kIconArrival);
+    if (RenderProcedureSelector("Arr RW", display.arrival_runway_candidates, display.selected_arrival_runway,
+                                 display.active_arrival_runways) &&
+        display.selected_arrival_runway.has_value() && interaction.on_arrival_runway_changed) {
+        interaction.on_arrival_runway_changed(*display.selected_arrival_runway);
+    }
+    ImGui::SameLine();
+    if (RenderProcedureSelector("STAR", display.star_candidates, display.selected_star) &&
+        display.selected_star.has_value() && interaction.on_star_changed) {
+        interaction.on_star_changed(*display.selected_star);
+    }
+    if (display.star_anchor_fix.has_value()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+        ImGui::Text("matched via %s", display.star_anchor_fix->c_str());
+        ImGui::PopStyleColor();
+    }
+    if (RenderProcedureSelector("APPR", display.approach_candidates, display.selected_approach) &&
+        display.selected_approach.has_value() && interaction.on_approach_changed) {
+        interaction.on_approach_changed(*display.selected_approach);
+    }
 }
 
 void MainWindow::RenderSettingsTab()

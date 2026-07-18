@@ -40,6 +40,13 @@ struct SimbriefFetchResult {
     std::optional<std::string> destination_icao;
     // LIDO-style route line -- see core::SimbriefOriginDestination::route_text.
     std::optional<std::string> route_text;
+    // Planned runways + raw route tokens -- see
+    // core::SimbriefOriginDestination's own fields of the same name. Used
+    // by Plugin.cpp to seed the Flight Plan tab's Procedures section
+    // (departure/arrival runway defaults, SID/STAR anchor-fix matching).
+    std::optional<std::string> origin_planned_runway;
+    std::optional<std::string> destination_planned_runway;
+    std::optional<std::string> raw_route;
     // Fuel figures -- see core::SimbriefFuelPlan. Default-constructed (all
     // fields nullopt) until the first successful fetch.
     core::SimbriefFuelPlan fuel;

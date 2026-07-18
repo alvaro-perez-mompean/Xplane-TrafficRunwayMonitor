@@ -495,7 +495,7 @@ void RenderSimbriefFuelPlan(const core::SimbriefFuelPlan& fuel)
         if (fuel.block.has_value()) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorTextPrimary);
             ImGui::TextUnformatted("BLOCK FUEL");
             ImGui::TableSetColumnIndex(1);
             ImGui::Text("%lld", *fuel.block);
@@ -573,17 +573,19 @@ void RenderSimbriefWeights(const core::SimbriefWeights& weights, const core::Sim
         RenderWeightRow("PAYLOAD", weights.payload, std::nullopt, weights.units);
         RenderWeightRow("ZFW", weights.zfw_est, weights.zfw_max, weights.units);
         RenderWeightRow("FUEL", fuel.block, fuel.max_tanks, fuel.units);
-        if (fuel.block.has_value() && fuel.max_tanks.has_value() && *fuel.max_tanks > *fuel.block) {
-            ImGui::TableSetColumnIndex(3);
-            ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
-            ImGui::Text("POSS EXTRA %s",
-                        core::FormatSimbriefWeightTonnes(*fuel.max_tanks - *fuel.block, fuel.units).c_str());
-            ImGui::PopStyleColor();
-        }
         RenderWeightRow("TOW", weights.tow_est, weights.tow_max, weights.units);
         RenderWeightRow("LAW", weights.law_est, weights.law_max, weights.units);
 
         ImGui::EndTable();
+    }
+
+    // Rendered as its own full-width line rather than a table cell -- the
+    // 4th column (sized for a plain "999.9" figure) was too narrow for
+    // "POSS EXTRA 999.9" and clipped it.
+    if (fuel.block.has_value() && fuel.max_tanks.has_value() && *fuel.max_tanks > *fuel.block) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kColorTextPrimary);
+        ImGui::Text("POSS EXTRA %s", core::FormatSimbriefWeightTonnes(*fuel.max_tanks - *fuel.block, fuel.units).c_str());
+        ImGui::PopStyleColor();
     }
 }
 
@@ -716,6 +718,57 @@ bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candi
         }
         ImGui::EndCombo();
     }
+    return changed;
+}
+
+bool RenderProcedureSelector(const char* label, const std::vector<std::string>& candidates,
+                               std::optional<std::string>& selected, const std::vector<std::string>& activeIds)
+{
+    auto isActive = [&activeIds](const std::string& id) {
+        return std::find(activeIds.begin(), activeIds.end(), id) != activeIds.end();
+    };
+
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
+
+    char widgetId[64];
+    std::snprintf(widgetId, sizeof(widgetId), "##proc_selector_%s", label);
+
+    const bool previewIsActive = selected.has_value() && isActive(*selected);
+    std::string preview = selected.value_or("--");
+    if (previewIsActive) {
+        preview = std::string(kIconConfirmed) + " " + preview;
+    }
+
+    bool changed = false;
+    ImGui::PushItemWidth(120.0f);
+    // Text color is pushed only around the closed-box preview draw (inside
+    // BeginCombo itself) -- it must not stay pushed across EndCombo, or it
+    // becomes the inherited color for every row in the dropdown popup too,
+    // painting the whole list green whenever the *selected* runway happens
+    // to be active.
+    ImGui::PushStyleColor(ImGuiCol_Text, previewIsActive ? kColorConfirmed : kColorTextPrimary);
+    const bool comboOpen = ImGui::BeginCombo(widgetId, preview.c_str());
+    ImGui::PopStyleColor();
+    if (comboOpen) {
+        for (const std::string& candidate : candidates) {
+            const bool isSelected = selected.has_value() && *selected == candidate;
+            const bool active = isActive(candidate);
+            const std::string itemLabel = active ? std::string(kIconConfirmed) + " " + candidate : candidate;
+            if (active) {
+                ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
+            }
+            if (ImGui::Selectable(itemLabel.c_str(), isSelected)) {
+                selected = candidate;
+                changed = true;
+            }
+            if (active) {
+                ImGui::PopStyleColor();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PopItemWidth();
     return changed;
 }
 

@@ -126,6 +126,55 @@ struct DisplayState {
     // core::SimbriefHeader) -- same lifetime/default convention as
     // simbrief_fuel above.
     core::SimbriefHeader simbrief_header;
+
+    // Flight Plan tab, Procedures section: candidate runway ids for the
+    // origin/destination airport (apt.dat, same source as the runway
+    // diagram elsewhere) -- empty if that airport isn't in the database.
+    std::vector<std::string> departure_runway_candidates;
+    std::vector<std::string> arrival_runway_candidates;
+    // Runway ids currently active for departures at the origin / arrivals
+    // at the destination (core::BuildCategoryResult's "active" tier only --
+    // the same confirmed-traffic-within-the-window meaning as the
+    // Dashboard tab's green bullet lines, not its history/wind-estimate
+    // fallbacks). Used to highlight the RW selectors below so a Simbrief-
+    // planned runway that's no longer actually in use stands out.
+    std::vector<std::string> active_departure_runways;
+    std::vector<std::string> active_arrival_runways;
+    // Currently selected runway on each end -- user-overridable, seeded
+    // from Simbrief's own plan_rwy the first time it's known, but never
+    // forced back to it afterward (see Plugin.cpp's procedure-selection
+    // resolution).
+    std::optional<std::string> selected_departure_runway;
+    std::optional<std::string> selected_arrival_runway;
+
+    // SID candidates for the current departure runway + route (core::
+    // FindSidsForRunwayFix), and which one is selected. Empty candidates
+    // means either no CIFP data for the origin or no SID reaches the
+    // matched anchor fix from this runway.
+    std::vector<std::string> sid_candidates;
+    std::optional<std::string> selected_sid;
+    // The route waypoint the SID match was made against (core::
+    // ExtractDepartureAnchorFix) -- shown as a "matched via" hint so the
+    // user can tell why the candidate list is what it is.
+    std::optional<std::string> sid_anchor_fix;
+
+    // STAR candidates for the destination + route (core::FindStarsForFix),
+    // runway-independent -- see that function's own comment on why.
+    std::vector<std::string> star_candidates;
+    std::optional<std::string> selected_star;
+    std::optional<std::string> star_anchor_fix;
+
+    // Approach candidates for the current arrival runway (core::
+    // FindApproachesForRunway), sorted most-precise-first.
+    std::vector<std::string> approach_candidates;
+    std::optional<std::string> selected_approach;
+
+    // Flight Plan tab: the current procedure selections summarized as one
+    // line (core::FormatProcedureSummary) -- deliberately separate from
+    // simbrief_route_text above, which always keeps showing what Simbrief
+    // itself planned rather than what's actually selected. Nullopt until
+    // origin and destination are both known.
+    std::optional<std::string> procedure_summary_text;
 };
 
 // User-adjustable settings. The orchestration cycle reads
@@ -191,6 +240,17 @@ struct InteractionState {
     // (sdk::SimbriefClient::RequestFetch) -- ui:: does no I/O itself, per
     // CLAUDE.md's ui/ layering rule.
     std::function<void()> on_simbrief_fetch_requested;
+
+    // Flight Plan tab Procedures section: fired the moment the user picks a
+    // different runway/SID/STAR/approach than the current selection.
+    // Plugin.cpp stores the picked value and recomputes candidates/defaults
+    // next cycle -- same "auto but overridable" pattern as the ICAO
+    // override fields above.
+    std::function<void(const std::string&)> on_departure_runway_changed;
+    std::function<void(const std::string&)> on_arrival_runway_changed;
+    std::function<void(const std::string&)> on_sid_changed;
+    std::function<void(const std::string&)> on_star_changed;
+    std::function<void(const std::string&)> on_approach_changed;
 };
 
 class MainWindow : public ImgWindow {
@@ -223,6 +283,7 @@ protected:
 private:
     void RenderDashboardTab();
     void RenderFlightPlanTab();
+    void RenderProceduresSection();
     void RenderSettingsTab();
     void RenderHistoryTab();
 
