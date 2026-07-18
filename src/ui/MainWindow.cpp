@@ -138,7 +138,12 @@ void MainWindow::InitFontAtlas()
 
 void MainWindow::buildInterface()
 {
-    ImGui::SetWindowFontScale(ComputeAutoTextScale());
+    // SetWindowFontScale is obsolete (removed under IMGUI_DISABLE_OBSOLETE_
+    // FUNCTIONS) -- io.FontGlobalScale is the documented replacement, and
+    // since each ImgWindow owns its own ImGui context with exactly one
+    // window (this one), a global scale is equivalent to the old per-window
+    // one here, with tooltips/popups now consistently scaled too.
+    ImGui::GetIO().FontGlobalScale = ComputeAutoTextScale();
 
     if (ImGui::BeginTabBar("##trm_tab_bar", ImGuiTabBarFlags_NoTooltip)) {
         char dashboardLabel[32];

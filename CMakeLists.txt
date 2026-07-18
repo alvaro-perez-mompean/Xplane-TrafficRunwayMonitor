@@ -24,6 +24,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(SDK_DIR "${CMAKE_SOURCE_DIR}/third_party/SDK")
 set(LTAPI_DIR "${CMAKE_SOURCE_DIR}/third_party/LTAPI")
 set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/ImGui")
+set(IMGUI_CONFIG_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui_config")
 set(IMGWINDOW_DIR "${CMAKE_SOURCE_DIR}/third_party/ImgWindow")
 
 include_directories(
@@ -33,6 +34,11 @@ include_directories(
     "${IMGUI_DIR}"
     "${IMGWINDOW_DIR}"
 )
+
+# third_party/ImGui is a submodule of upstream ocornut/imgui, so project-owned
+# config lives outside it (see third_party/imgui_config/trm_imconfig.h).
+add_definitions(-DIMGUI_USER_CONFIG="trm_imconfig.h")
+include_directories("${IMGUI_CONFIG_DIR}")
 
 # Windows' SDK ships GL/gl.h (GL 1.1) but no GL/glext.h -- SystemGL.h
 # (third_party/ImgWindow) includes <GL/glext.h> unconditionally on
@@ -80,6 +86,7 @@ add_library(TrafficRunwayMonitor SHARED
     third_party/LTAPI/LTAPI.cpp
     third_party/ImGui/imgui.cpp
     third_party/ImGui/imgui_draw.cpp
+    third_party/ImGui/imgui_tables.cpp
     third_party/ImGui/imgui_widgets.cpp
     third_party/ImgWindow/ImgWindow.cpp
     third_party/ImgWindow/ImgFontAtlas.cpp
@@ -104,15 +111,16 @@ if(APPLE)
     # The vendored XPLM.framework isn't in any default search location, so
     # -framework XPLM alone can't find it -- needs an explicit -F path too.
     # ApplicationServices is required by ImGui's own OSX clipboard functions
-    # (IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS in imconfig.h) -- see
+    # (IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS in trm_imconfig.h) -- see
     # imgui.cpp's own comment on GetClipboardTextFn_DefaultImpl.
     target_link_libraries(TrafficRunwayMonitor "-F${SDK_DIR}/Libraries/Mac" "-framework XPLM"
                             ${CORE_FOUNDATION_LIBRARY} ${APPLICATION_SERVICES_LIBRARY})
 endif()
 
-# ui/MainWindow's ImGui + ImgWindow dependency: the vendored
-# ImGui v1.78 WIP + ImgWindow snapshot from TwinFan/LiveTraffic -- see
-# ui/MainWindow.h's comment for why this exact pairing, not latest ImGui.
+# ui/MainWindow's ImGui + ImgWindow dependency: ImGui is a submodule
+# (third_party/ImGui, pinned to a tagged release -- see .gitmodules).
+# ImgWindow is still a vendored snapshot from TwinFan/LiveTraffic, patched
+# locally (#11) -- not a submodule since it's no longer identical upstream.
 if(WIN32)
     target_link_libraries(TrafficRunwayMonitor opengl32)
 elseif(APPLE)
