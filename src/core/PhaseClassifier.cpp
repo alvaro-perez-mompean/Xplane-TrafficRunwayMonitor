@@ -5,7 +5,7 @@ namespace trm::core {
 FlightPhase ClassifyPhase(double aglM, double gsKt, VsState vsState, bool aligned, GsTrend gsTrend,
                            const PhaseClassifierConfig& config)
 {
-    const bool onGround = aglM < config.ground_agl_threshold_m;
+    const bool onGround = aglM < config.ground_agl_threshold_m || gsKt < config.ground_gs_override_kt;
     const bool climbing = vsState == VsState::kClimbing;
     const bool descending = vsState == VsState::kDescending;
 

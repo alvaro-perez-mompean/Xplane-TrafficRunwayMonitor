@@ -30,6 +30,7 @@
 
 #include "core/AdvisoryFormat.h"
 #include "core/Aggregator.h"
+#include "core/AglResolver.h"
 #include "core/AptDat.h"
 #include "core/EventLog.h"
 #include "core/PhaseClassifier.h"
@@ -44,6 +45,7 @@
 #include "sdk/LtapiSource.h"
 #include "sdk/SettingsStore.h"
 #include "sdk/TcasSource.h"
+#include "sdk/TerrainProbe.h"
 #include "sdk/Weather.h"
 
 #include "ui/MainWindow.h"
@@ -54,6 +56,14 @@ using namespace trm;
 namespace {
 
 constexpr float kCycleIntervalSec = 1.0f;
+
+// Real terrain probing is expensive (XPLMScenery.h's own guidance) --
+// PhaseClassifierConfig only cares about AGL below ~500m
+// (initial_climb_max_agl_m/final_approach_max_agl_m) or ~5m
+// (ground_agl_threshold_m), so only probe when the cheap airport-elevation
+// estimate already puts an aircraft within this margin above that -- real
+// en-route traffic well above it never gets probed at all.
+constexpr double kTerrainProbeMaxCheapAglM = 750.0;
 
 // Per-slot bookkeeping the orchestration cycle owns across cycles that
 // isn't already owned by sdk::TcasSource (stale-slot validity) internally:
@@ -85,6 +95,13 @@ sdk::Weather g_weather;
 // index 0 unused in both, matching TcasSource/LtapiSource's own slot convention.
 std::vector<SlotAnalysisState> g_tcasSlotStates;
 std::vector<SlotAnalysisState> g_ltapiSlotStates;
+
+// Separate per-source, matching the slot state vectors above -- not a
+// correctness requirement (a cached XPLMProbeRef works fine reused for any
+// query point), just keeping the per-slot-index cache size bounded to each
+// source's own slot count instead of the sum of both.
+sdk::TerrainProbe g_tcasTerrainProbe;
+sdk::TerrainProbe g_ltapiTerrainProbe;
 
 std::unique_ptr<ui::MainWindow> g_mainWindow;
 
@@ -191,7 +208,7 @@ core::AirportEntryInputs ResolveAirportInputs(const std::string& icao, const cor
 int CollectAndTrackTraffic(const core::AirportDatabase& db, const std::vector<core::NearbyAirport>& nearest,
                             const std::vector<std::string>& extraCandidates, double nowSec,
                             const std::vector<sdk::SlotReading>& readings, std::vector<SlotAnalysisState>& slotStates,
-                            bool debugLogRunwayMatches)
+                            sdk::TerrainProbe& terrainProbe, bool debugLogRunwayMatches)
 {
     int trackedCount = 0;
 
@@ -201,11 +218,13 @@ int CollectAndTrackTraffic(const core::AirportDatabase& db, const std::vector<co
 
         if (!reading.valid) {
             // Also drops ground_sighting/pending_arrival (SightingTracker's
-            // own confirm-before/confirm-after state): this slot index can
-            // be recycled for a completely different real aircraft shortly
-            // after this one despawns.
+            // own confirm-before/confirm-after state) and any cached
+            // terrain probe: this slot index can be recycled for a
+            // completely different real aircraft shortly after this one
+            // despawns.
             state.has_prev_gs = false;
             g_sightingTracker.ClearSlotState(state.sighting_state);
+            terrainProbe.ClearSlot(i);
             continue;
         }
 
@@ -281,8 +300,20 @@ int CollectAndTrackTraffic(const core::AirportDatabase& db, const std::vector<co
         core::FlightPhase phase = core::FlightPhase::kAirborneEnroute;
         double aglM = 0.0;
         bool haveAgl = false;
+        core::AglSource aglSource = core::AglSource::kAirportElevation;
         if (refAirport != nullptr) {
-            aglM = reading.msl_m - refAirport->elevation_ft * 0.3048;
+            // Cheap airport-elevation estimate first, both as the
+            // pre-filter for whether a real probe is even worth running
+            // (see kTerrainProbeMaxCheapAglM) and as core::ResolveAgl's own
+            // sanity-check baseline.
+            const double cheapAglM = reading.msl_m - refAirport->elevation_ft * 0.3048;
+            std::optional<double> probeElevationM;
+            if (cheapAglM < kTerrainProbeMaxCheapAglM) {
+                probeElevationM = terrainProbe.ProbeElevationM(i, reading.lat_deg, reading.lon_deg, reading.msl_m);
+            }
+            const core::AglResult aglResult = core::ResolveAgl(reading.msl_m, probeElevationM, refAirport->elevation_ft);
+            aglM = aglResult.agl_m;
+            aglSource = aglResult.source;
             haveAgl = true;
             phase = core::ClassifyPhase(aglM, reading.gs_kt, vsState, matchedRunway != nullptr, gsTrend);
         }
@@ -295,11 +326,11 @@ int CollectAndTrackTraffic(const core::AirportDatabase& db, const std::vector<co
         if (debugLogRunwayMatches && matchedRunway != nullptr && haveAgl) {
             char buf[256];
             std::snprintf(buf, sizeof(buf),
-                          "RWYDBG slot=%d icao=%s rwy=%s phase=%s agl_m=%.1f gs_kt=%.1f gsTrend=%d "
+                          "RWYDBG slot=%d icao=%s rwy=%s phase=%s agl_m=%.1f aglSrc=%s gs_kt=%.1f gsTrend=%d "
                           "lat=%.5f lon=%.5f hdg=%.1f",
                           i, matchedIcao.c_str(), matchedRunway->id.c_str(), PhaseDebugName(phase), aglM,
-                          reading.gs_kt, static_cast<int>(gsTrend), reading.lat_deg, reading.lon_deg,
-                          reading.heading_true_deg);
+                          aglSource == core::AglSource::kTerrainProbe ? "probe" : "airport", reading.gs_kt,
+                          static_cast<int>(gsTrend), reading.lat_deg, reading.lon_deg, reading.heading_true_deg);
             sdk::Log(sdk::LogLevel::Info, buf);
         }
 
@@ -487,11 +518,11 @@ void RunAnalysisCycle()
     if (g_ltapiSource && g_ltapiSource->IsAvailable()) {
         const std::vector<sdk::SlotReading> readings = g_ltapiSource->CollectTraffic();
         trackedCount = CollectAndTrackTraffic(g_airportDatabase, nearest, extraCandidates, nowSec, readings,
-                                               g_ltapiSlotStates, debugLogRunwayMatches);
+                                               g_ltapiSlotStates, g_ltapiTerrainProbe, debugLogRunwayMatches);
     } else if (g_tcasSource) {
         const std::vector<sdk::SlotReading> readings = g_tcasSource->CollectTraffic(nowSec);
         trackedCount = CollectAndTrackTraffic(g_airportDatabase, nearest, extraCandidates, nowSec, readings,
-                                               g_tcasSlotStates, debugLogRunwayMatches);
+                                               g_tcasSlotStates, g_tcasTerrainProbe, debugLogRunwayMatches);
     }
 
     // The active window is user-adjustable at runtime, so it's read fresh
