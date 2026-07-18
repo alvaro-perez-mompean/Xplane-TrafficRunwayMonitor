@@ -21,6 +21,7 @@ add_executable(trm_core_tests
     test_WindEstimate.cpp
     test_Aggregator.cpp
     test_FmsOrigin.cpp
+    test_SimbriefOfp.cpp
     test_Weather.cpp
     test_Format.cpp
     test_SlotAssignment.cpp

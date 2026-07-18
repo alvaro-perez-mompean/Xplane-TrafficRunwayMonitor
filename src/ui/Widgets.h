@@ -14,6 +14,7 @@
 #include "core/AptDat.h"
 #include "core/EventLog.h"
 #include "core/Format.h"
+#include "core/SimbriefOfp.h"
 #include "core/WindEstimate.h"
 #include "ui/Theme.h"
 
@@ -104,6 +105,36 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
 // placeholder line instead of an empty table when `events` is empty.
 void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events);
 
+// Flight Plan tab: LIDO-style fuel summary table from the last successful
+// Simbrief fetch (see core::SimbriefFuelPlan) -- Taxi/Trip/Contingency/
+// Alternate/Reserve/Extra rows plus a highlighted Block total, unit
+// suffixed in the header when Simbrief reported one (kgs/lbs). Each row is
+// only rendered when its own figure is present -- see
+// core::SimbriefFuelPlan's own comment on nullopt vs. genuine zero.
+// Renders nothing at all if `fuel` has no figures whatsoever (no fetch yet).
+void RenderSimbriefFuelPlan(const core::SimbriefFuelPlan& fuel);
+
+// Flight Plan tab: LIDO-style weights summary table from the last
+// successful Simbrief fetch (see core::SimbriefWeights) -- PAX (plain
+// headcount)/Cargo/Payload/ZFW/Fuel/TOW/LAW rows, EST and MAX columns.
+// Unlike a real LIDO OFP, there is no ACTUAL column -- this plugin has no
+// live weight source to fill it with. The Fuel row is sourced from `fuel`
+// (block/max_tanks) rather than `weights` -- same figures already shown in
+// RenderSimbriefFuelPlan's own table, just tonnes-formatted here to match
+// the rest of this table -- and gets a "poss extra" note when max_tanks
+// exceeds the planned block fuel. Each row (and the whole table) only
+// renders when it has at least one figure to show.
+void RenderSimbriefWeights(const core::SimbriefWeights& weights, const core::SimbriefFuelPlan& fuel);
+
+// Flight Plan tab: header/identity block from the last successful Simbrief
+// fetch (see core::SimbriefHeader) -- callsign/departure date/aircraft
+// type+reg/cost index on one line, then ALTN, FL STEPS, AVG W/C + AVG ISA,
+// and the OFP's own release id/date, each only shown if present. Doesn't
+// repeat origin/destination (already shown by the ICAO override fields
+// above it) or TOW/ZFW/LAW (already in RenderSimbriefWeights' table).
+// Renders nothing at all if `header` has no figures whatsoever.
+void RenderSimbriefHeader(const core::SimbriefHeader& header);
+
 // Caller-owned persistent state for one RenderIcaoOverrideField call site
 // -- ImGui is immediate-mode and doesn't own text-editing state itself,
 // and a plain function-local static wouldn't distinguish the origin call
@@ -114,6 +145,7 @@ struct IcaoOverrideFieldState {
     char buf[5] = "";
     char last_committed_buf[5] = "";
     int last_seen_reset_epoch = 0;
+    int last_seen_override_epoch = 0;
 };
 
 // Flight Plan tab: a 4-char, uppercase ICAO ImGui::InputText. Read-only
@@ -121,11 +153,16 @@ struct IcaoOverrideFieldState {
 // While editable, the buffer is normally left alone for the user to type
 // in -- staleness alone does NOT blank it, since Plugin.cpp keeps the
 // pinned value sticky across a source going quiet -- except when
-// `resetEpoch` differs from what this call site last saw
-// (`state.last_seen_reset_epoch`), meaning a new flight just cleared the
-// pin, which force-mirrors it back to `effectiveIcao` once. Each
-// successful edit calls `onChanged` immediately (same synchronous-callback
-// pattern as RenderNearbyAirportSelector's caller).
+// `resetEpoch` or `overrideEpoch` differs from what this call site last saw
+// (`state.last_seen_reset_epoch`/`last_seen_override_epoch`), which
+// force-mirrors the buffer back to `effectiveIcao` once. `resetEpoch`
+// changes when a new flight just cleared the pin; `overrideEpoch` changes
+// when something other than the user's own typing set the pin's value
+// (e.g. a Simbrief fetch) -- without the latter, a field left editable
+// (no fresh native-FMS entry) would never show a value filled in that way,
+// since it wasn't typed into this buffer and reaching this field isn't a
+// flight reset. Each successful edit calls `onChanged` immediately (same
+// synchronous-callback pattern as RenderNearbyAirportSelector's caller).
 //
 // Also repairs a real ImGui/XPLM interaction: third_party/ImgWindow's
 // HandleKeyFuncCB simulates an Escape keypress whenever this plugin window
@@ -139,7 +176,7 @@ struct IcaoOverrideFieldState {
 // `airportName` (nullopt renders as an "unknown ICAO" warning) render
 // underneath.
 void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
-                              const std::optional<std::string>& effectiveIcao,
+                              int overrideEpoch, const std::optional<std::string>& effectiveIcao,
                               const std::optional<std::string>& airportName,
                               const std::function<void(const std::string&)>& onChanged);
 

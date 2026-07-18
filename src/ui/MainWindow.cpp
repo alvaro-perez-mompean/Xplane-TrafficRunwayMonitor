@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include "XPLMUtilities.h"
@@ -246,19 +247,57 @@ void MainWindow::RenderFlightPlanTab()
 {
     ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
     ImGui::TextWrapped(
-        "Origin and destination feed the pinned airport on the Dashboard tab. Each field mirrors its "
-        "flight-management system live while fresh; once stale for 5s+, it unlocks for manual entry but keeps "
+        "Origin and destination feed the pinned airport on the Dashboard tab. Each field mirrors X-Plane's own "
+        "FMS flight plan live; once the FMS reports no matching entry, it unlocks for manual entry but keeps "
         "showing its last known value until you edit it or a new flight starts.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
 
     RenderIcaoOverrideField("Origin", origin_field_state_, display.origin_editable, display.flight_reset_epoch,
-                             display.origin_icao, display.origin_airport_name,
+                             display.origin_override_epoch, display.origin_icao, display.origin_airport_name,
                              interaction.on_origin_override_changed);
     ImGui::Spacing();
     RenderIcaoOverrideField("Destination", destination_field_state_, display.destination_editable,
-                             display.flight_reset_epoch, display.destination_icao, display.destination_airport_name,
-                             interaction.on_destination_override_changed);
+                             display.flight_reset_epoch, display.destination_override_epoch, display.destination_icao,
+                             display.destination_airport_name, interaction.on_destination_override_changed);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const bool pilotIdConfigured = !settings.simbrief_pilot_id.empty();
+    if (ImGui::Button("Fetch from Simbrief") && pilotIdConfigured &&
+        display.simbrief_fetch_status != SimbriefFetchUiStatus::kFetching && interaction.on_simbrief_fetch_requested) {
+        interaction.on_simbrief_fetch_requested();
+    }
+    if (!pilotIdConfigured) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+        ImGui::TextWrapped("Set a Simbrief pilot ID in Settings to enable this.");
+        ImGui::PopStyleColor();
+    } else if (!display.simbrief_fetch_message.empty()) {
+        const unsigned int color = display.simbrief_fetch_status == SimbriefFetchUiStatus::kError ? kColorWindEstimate
+                                    : display.simbrief_fetch_status == SimbriefFetchUiStatus::kSuccess
+                                        ? kColorConfirmed
+                                        : kColorWaiting;
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextWrapped("%s", display.simbrief_fetch_message.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::Spacing();
+    RenderSimbriefHeader(display.simbrief_header);
+
+    if (display.simbrief_route_text.has_value()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Route");
+        ImGui::TextWrapped("%s", display.simbrief_route_text->c_str());
+    }
+
+    ImGui::Spacing();
+    RenderSimbriefFuelPlan(display.simbrief_fuel);
+
+    ImGui::Spacing();
+    RenderSimbriefWeights(display.simbrief_weights, display.simbrief_fuel);
 }
 
 void MainWindow::RenderSettingsTab()
@@ -302,6 +341,16 @@ void MainWindow::RenderSettingsTab()
 
     RenderSectionHeader(kIconStartupSection, "Startup");
     ImGui::Checkbox("Open window automatically on startup", &settings.auto_open_on_startup);
+    ImGui::Spacing();
+
+    RenderSectionHeader(kIconFlightPlanTab, "Simbrief");
+    if (std::strcmp(simbrief_pilot_id_buf_, settings.simbrief_pilot_id.c_str()) != 0 && !ImGui::IsAnyItemActive()) {
+        std::snprintf(simbrief_pilot_id_buf_, sizeof(simbrief_pilot_id_buf_), "%s",
+                      settings.simbrief_pilot_id.c_str());
+    }
+    if (ImGui::InputText("Pilot ID", simbrief_pilot_id_buf_, sizeof(simbrief_pilot_id_buf_))) {
+        settings.simbrief_pilot_id = simbrief_pilot_id_buf_;
+    }
     ImGui::Spacing();
 
     RenderSectionHeader(kIconDebug, "Debug");

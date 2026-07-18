@@ -456,6 +456,221 @@ void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events)
 
 namespace {
 
+void RenderFuelRow(const char* label, const std::optional<long long>& value)
+{
+    if (!value.has_value()) {
+        return;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::TextUnformatted(label);
+    ImGui::TableSetColumnIndex(1);
+    ImGui::Text("%lld", *value);
+}
+
+} // namespace
+
+void RenderSimbriefFuelPlan(const core::SimbriefFuelPlan& fuel)
+{
+    const bool hasAnyFigure = fuel.taxi.has_value() || fuel.trip.has_value() || fuel.contingency.has_value() ||
+                               fuel.alternate.has_value() || fuel.reserve.has_value() || fuel.extra.has_value() ||
+                               fuel.block.has_value();
+    if (!hasAnyFigure) {
+        return;
+    }
+
+    std::string header = "PLANNED FUEL";
+    if (fuel.units.has_value()) {
+        header += " (" + *fuel.units + ")";
+    }
+    ImGui::TextDisabled("%s", header.c_str());
+
+    if (ImGui::BeginTable("##simbrief_fuel", 2, ImGuiTableFlags_SizingPolicyFixedX)) {
+        RenderFuelRow("TAXI", fuel.taxi);
+        RenderFuelRow("TRIP", fuel.trip);
+        RenderFuelRow("CONT", fuel.contingency);
+        RenderFuelRow("ALTN", fuel.alternate);
+        RenderFuelRow("FINRES", fuel.reserve);
+        RenderFuelRow("EXTRA", fuel.extra);
+        if (fuel.block.has_value()) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
+            ImGui::TextUnformatted("BLOCK FUEL");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%lld", *fuel.block);
+            ImGui::PopStyleColor();
+        }
+        ImGui::EndTable();
+    }
+}
+
+namespace {
+
+// EST/MAX pair, tonnes-formatted (see core::FormatSimbriefWeightTonnes) --
+// no-op (no row) if both are nullopt.
+void RenderWeightRow(const char* label, const std::optional<long long>& est, const std::optional<long long>& max,
+                      const std::optional<std::string>& units)
+{
+    if (!est.has_value() && !max.has_value()) {
+        return;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::TextUnformatted(label);
+    if (est.has_value()) {
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextUnformatted(core::FormatSimbriefWeightTonnes(*est, units).c_str());
+    }
+    if (max.has_value()) {
+        ImGui::TableSetColumnIndex(2);
+        ImGui::TextUnformatted(core::FormatSimbriefWeightTonnes(*max, units).c_str());
+    }
+}
+
+} // namespace
+
+void RenderSimbriefWeights(const core::SimbriefWeights& weights, const core::SimbriefFuelPlan& fuel)
+{
+    const bool hasAnyFigure = weights.pax_count.has_value() || weights.cargo.has_value() ||
+                               weights.payload.has_value() || weights.zfw_est.has_value() ||
+                               weights.zfw_max.has_value() || weights.tow_est.has_value() ||
+                               weights.tow_max.has_value() || weights.law_est.has_value() ||
+                               weights.law_max.has_value() || fuel.block.has_value() || fuel.max_tanks.has_value();
+    if (!hasAnyFigure) {
+        return;
+    }
+
+    std::string header = "WEIGHTS";
+    if (weights.units.has_value()) {
+        header += (*weights.units == "kgs") ? " (t)" : (" (" + *weights.units + ")");
+    }
+    ImGui::TextDisabled("%s", header.c_str());
+
+    if (ImGui::BeginTable("##simbrief_weights", 4, ImGuiTableFlags_SizingPolicyFixedX)) {
+        // Explicit widths, not left to auto-size-to-content -- auto-sizing
+        // packed EST/MAX right up against each other with no breathing room.
+        // Based on CalcTextSize (which already reflects the window's current
+        // font scale, see MainWindow::ComputeAutoTextScale/
+        // SetWindowFontScale) plus a fixed gap, so the extra spacing itself
+        // scales with text size instead of staying a constant pixel amount.
+        const float labelColWidth = ImGui::CalcTextSize("PAYLOAD").x + kUiItemSpacingX;
+        const float numColWidth = ImGui::CalcTextSize("999.9").x + kUiItemSpacingX * 3.0f;
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, labelColWidth);
+        ImGui::TableSetupColumn("EST", ImGuiTableColumnFlags_WidthFixed, numColWidth);
+        ImGui::TableSetupColumn("MAX", ImGuiTableColumnFlags_WidthFixed, numColWidth);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, numColWidth + kUiItemSpacingX);
+        ImGui::TableAutoHeaders();
+
+        if (weights.pax_count.has_value()) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted("PAX");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%lld", *weights.pax_count);
+        }
+        RenderWeightRow("CARGO", weights.cargo, std::nullopt, weights.units);
+        RenderWeightRow("PAYLOAD", weights.payload, std::nullopt, weights.units);
+        RenderWeightRow("ZFW", weights.zfw_est, weights.zfw_max, weights.units);
+        RenderWeightRow("FUEL", fuel.block, fuel.max_tanks, fuel.units);
+        if (fuel.block.has_value() && fuel.max_tanks.has_value() && *fuel.max_tanks > *fuel.block) {
+            ImGui::TableSetColumnIndex(3);
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
+            ImGui::Text("POSS EXTRA %s",
+                        core::FormatSimbriefWeightTonnes(*fuel.max_tanks - *fuel.block, fuel.units).c_str());
+            ImGui::PopStyleColor();
+        }
+        RenderWeightRow("TOW", weights.tow_est, weights.tow_max, weights.units);
+        RenderWeightRow("LAW", weights.law_est, weights.law_max, weights.units);
+
+        ImGui::EndTable();
+    }
+}
+
+namespace {
+
+// Appends `piece` to `line`, separated from any existing content by three
+// spaces -- shared by RenderSimbriefHeader's label lines below.
+void AppendHeaderField(std::string& line, const std::string& piece)
+{
+    if (!line.empty()) {
+        line += "   ";
+    }
+    line += piece;
+}
+
+} // namespace
+
+void RenderSimbriefHeader(const core::SimbriefHeader& header)
+{
+    const bool hasAnyFigure = header.callsign.has_value() || header.aircraft_type.has_value() ||
+                               header.aircraft_reg.has_value() || header.cost_index.has_value() ||
+                               header.departure_date.has_value() || header.release_id.has_value() ||
+                               header.release_date.has_value() || header.alternate_icao.has_value() ||
+                               header.step_climbs.has_value() || header.avg_wind_component.has_value() ||
+                               header.avg_isa_deviation.has_value();
+    if (!hasAnyFigure) {
+        return;
+    }
+
+    ImGui::TextDisabled("[ OFP ]");
+
+    std::string identityLine;
+    if (header.callsign.has_value()) {
+        AppendHeaderField(identityLine, *header.callsign);
+    }
+    if (header.departure_date.has_value()) {
+        AppendHeaderField(identityLine, *header.departure_date);
+    }
+    if (header.aircraft_type.has_value() || header.aircraft_reg.has_value()) {
+        std::string aircraft = header.aircraft_type.value_or("");
+        if (header.aircraft_reg.has_value()) {
+            if (!aircraft.empty()) {
+                aircraft += " ";
+            }
+            aircraft += *header.aircraft_reg;
+        }
+        AppendHeaderField(identityLine, aircraft);
+    }
+    if (header.cost_index.has_value()) {
+        AppendHeaderField(identityLine, "CI " + *header.cost_index);
+    }
+    if (!identityLine.empty()) {
+        ImGui::TextWrapped("%s", identityLine.c_str());
+    }
+
+    if (header.alternate_icao.has_value()) {
+        ImGui::Text("ALTN %s", header.alternate_icao->c_str());
+    }
+    if (header.step_climbs.has_value()) {
+        ImGui::TextWrapped("FL STEPS  %s", header.step_climbs->c_str());
+    }
+
+    std::string windIsaLine;
+    if (header.avg_wind_component.has_value()) {
+        AppendHeaderField(windIsaLine, "AVG W/C " + *header.avg_wind_component);
+    }
+    if (header.avg_isa_deviation.has_value()) {
+        AppendHeaderField(windIsaLine, "AVG ISA " + *header.avg_isa_deviation);
+    }
+    if (!windIsaLine.empty()) {
+        ImGui::TextWrapped("%s", windIsaLine.c_str());
+    }
+
+    if (header.release_id.has_value() || header.release_date.has_value()) {
+        std::string releaseLine = "RELEASE";
+        if (header.release_id.has_value()) {
+            releaseLine += " " + *header.release_id;
+        }
+        if (header.release_date.has_value()) {
+            releaseLine += "  " + *header.release_date;
+        }
+        ImGui::TextWrapped("%s", releaseLine.c_str());
+    }
+}
+
+namespace {
+
 // Builds unbounded (no truncation) since airport names have no fixed max
 // length worth guessing at -- unlike the fixed-size snprintf buffers used
 // elsewhere in this file for short numeric-only labels.
@@ -505,12 +720,14 @@ bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candi
 }
 
 void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, bool editable, int resetEpoch,
-                              const std::optional<std::string>& effectiveIcao,
+                              int overrideEpoch, const std::optional<std::string>& effectiveIcao,
                               const std::optional<std::string>& airportName,
                               const std::function<void(const std::string&)>& onChanged)
 {
-    const bool forcedReset = resetEpoch != state.last_seen_reset_epoch;
+    const bool forcedReset =
+        resetEpoch != state.last_seen_reset_epoch || overrideEpoch != state.last_seen_override_epoch;
     state.last_seen_reset_epoch = resetEpoch;
+    state.last_seen_override_epoch = overrideEpoch;
 
     if (!editable || forcedReset) {
         // See this function's own doc comment (Widgets.h) for when/why.

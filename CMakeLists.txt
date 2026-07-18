@@ -68,6 +68,7 @@ add_library(TrafficRunwayMonitor SHARED
     src/sdk/TcasSource.cpp
     src/sdk/LtapiSource.cpp
     src/sdk/FmsOrigin.cpp
+    src/sdk/SimbriefClient.cpp
     src/sdk/Weather.cpp
     src/sdk/Log.cpp
     src/sdk/SettingsStore.cpp
@@ -87,6 +88,8 @@ target_include_directories(TrafficRunwayMonitor PRIVATE "${CMAKE_SOURCE_DIR}/src
 if(WIN32)
     find_library(XPLM_LIBRARY NAMES XPLM XPLM_64.lib)
     target_link_libraries(TrafficRunwayMonitor ${XPLM_LIBRARY})
+    # sdk::SimbriefClient's real (Windows-only) HTTP fetch implementation.
+    target_link_libraries(TrafficRunwayMonitor wininet)
 endif()
 
 if(UNIX AND NOT APPLE)
@@ -168,6 +171,7 @@ add_library(trm_core STATIC
     src/core/WindEstimate.cpp
     src/core/Aggregator.cpp
     src/core/FmsOrigin.cpp
+    src/core/SimbriefOfp.cpp
     src/core/Weather.cpp
     src/core/Format.cpp
     src/core/SlotAssignment.cpp

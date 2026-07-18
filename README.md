@@ -39,16 +39,21 @@ is available:
 
 It also picks up your own flight plan's origin and destination, so those
 airports stay pinned and get checked even if they fall outside the normal
-search radius. On a ToLiss Airbus, it reads the origin/destination straight
-off the MCDU; for every other aircraft, it falls back to X-Plane's own
-native FMS flight plan entries. Support for reading other add-on
-FMS/MCDU implementations directly (FlyByWire, Zibo, etc.) beyond the
-native X-Plane FMS entries is a possible future addition.
+search radius. It reads these straight from X-Plane's own native FMS flight
+plan entries; for aircraft or situations where that isn't populated, the
+Flight Plan tab lets you type them in manually, or fetch them in one click
+from your current Simbrief flight plan (pilot ID configured once in
+Settings).
 
 ## Using it
 
-Open the plugin's window from X-Plane's Plugins menu. It has three tabs:
+Open the plugin's window from X-Plane's Plugins menu. It has four tabs:
 - **Dashboard**: currently-tracked traffic and their live phase/runway match.
+- **Flight Plan**: origin/destination ICAO, editable whenever the native FMS
+  has no matching entry; a "Fetch from Simbrief" button fills them in from
+  your current Simbrief OFP (pilot ID configured once in Settings) and shows
+  its planned route in LIDO-style text (e.g.
+  `LEBL/20 SENIA2J SENIA Z596 NEXAS N975 ADUXO ADUXO3D LEMD/32R`).
 - **History**: confirmed arrival/departure events (icao/runway/category/callsign).
 - **Settings**: display and search options (altimeter unit, airport card
   layout, search radius), plus debug options including logging runway
