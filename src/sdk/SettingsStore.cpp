@@ -38,7 +38,6 @@ void SaveSettings(const PersistedSettings& settings)
     out << "search_radius_nm=" << settings.search_radius_nm << '\n';
     out << "max_displayed_airports=" << settings.max_displayed_airports << '\n';
     out << "active_window_min=" << settings.active_window_min << '\n';
-    out << "text_size_scale=" << settings.text_size_scale << '\n';
     out << "show_raw_metar=" << (settings.show_raw_metar ? 1 : 0) << '\n';
     out << "debug_log_runway_matches=" << (settings.debug_log_runway_matches ? 1 : 0) << '\n';
     out << "pressure_unit=" << settings.pressure_unit << '\n';
@@ -69,8 +68,6 @@ std::optional<PersistedSettings> LoadSettings()
             settings.max_displayed_airports = std::atoi(value.c_str());
         } else if (key == "active_window_min") {
             settings.active_window_min = std::atoi(value.c_str());
-        } else if (key == "text_size_scale") {
-            settings.text_size_scale = std::strtof(value.c_str(), nullptr);
         } else if (key == "show_raw_metar") {
             settings.show_raw_metar = (value == "1");
         } else if (key == "debug_log_runway_matches") {

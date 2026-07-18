@@ -55,14 +55,14 @@ struct DisplayState {
     std::vector<core::RunwayEventSummary> recent_events;
 };
 
-// User-adjustable settings plus the UI-only text-size scale. The
-// orchestration cycle reads search_radius_nm/max_displayed_airports/
-// active_window_min live each cycle.
+// User-adjustable settings. The orchestration cycle reads
+// search_radius_nm/max_displayed_airports/active_window_min live each
+// cycle. Text size auto-scales with window width instead of being a
+// setting -- see MainWindow::buildInterface.
 struct Settings {
     int search_radius_nm = 15;
     int max_displayed_airports = 5;
     int active_window_min = 30;
-    float text_size_scale = 1.0f;
     bool show_raw_metar = false;
     core::PressureUnit pressure_unit = core::PressureUnit::kInHg;
 

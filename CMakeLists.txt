@@ -145,11 +145,8 @@ set_target_properties(TrafficRunwayMonitor PROPERTIES
 )
 
 # Bundled icon font (ui/MainWindow::InitFontAtlas merges it into the shared
-# atlas) -- unlike DejaVuSans.ttf, which is borrowed from X-Plane's own
-# install via XPLMGetSystemPath, this one ships with the plugin itself.
-# Deployed as Resources/fonts/, a sibling of win_x64/ (matching X-Plane's own
-# Resources/fonts/ layout), so sdk::PluginPath's plugin-root + "Resources/..."
-# lookup works the same in the build tree as in the deployed plugin folder.
+# atlas). Deployed as Resources/fonts/, a sibling of win_x64/, matching what
+# sdk::PluginPath expects.
 add_custom_command(TARGET TrafficRunwayMonitor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Resources/fonts"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

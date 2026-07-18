@@ -21,6 +21,35 @@ bool RunwayIsActive(const core::CategoryResult& category, const std::string& run
 
 } // namespace
 
+CardScope BeginCard()
+{
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->ChannelsSplit(2);
+    drawList->ChannelsSetCurrent(1); // content; channel 0 (background) is backfilled in EndCard
+
+    CardScope scope;
+    scope.start_pos = ImGui::GetCursorScreenPos();
+    // Full available width, so the card's margins stay symmetric.
+    scope.content_width = ImGui::GetContentRegionAvail().x;
+
+    ImGui::Dummy(ImVec2(0.0f, kUiWindowPaddingY)); // inner top padding
+    return scope;
+}
+
+void EndCard(const CardScope& scope)
+{
+    ImGui::Dummy(ImVec2(0.0f, kUiWindowPaddingY)); // inner bottom padding
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImVec2 endPos = ImGui::GetCursorScreenPos();
+    ImVec2 max(scope.start_pos.x + scope.content_width, endPos.y);
+
+    drawList->ChannelsSetCurrent(0);
+    drawList->AddRectFilled(scope.start_pos, max, kColorBgPanel, kUiCardRounding);
+    drawList->AddRect(scope.start_pos, max, kColorBorder, kUiCardRounding);
+    drawList->ChannelsMerge();
+}
+
 ImU32 RunwayStatusColor(const core::AirportEntry& entry, const std::string& runwayId)
 {
     if (RunwayIsActive(entry.departures, runwayId) || RunwayIsActive(entry.arrivals, runwayId)) {
@@ -48,11 +77,15 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
                             const std::optional<core::WindEstimateResult>& windEstimate)
 {
     ImGui::Text("%s:", title);
+    // Real Indent, not leading spaces -- a proportional font's space glyph
+    // doesn't have a fixed pixel width, so hand-counted spaces drift out of
+    // alignment with other lines.
+    ImGui::Indent(kUiWindowPaddingX);
 
     if (!category.active.empty()) {
         for (const auto& runway : category.active) {
             ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
-            ImGui::Text("    * %s (%d, last %s)", runway.runway_id.c_str(), runway.count,
+            ImGui::Text("%s %s (%d, last %s)", kIconConfirmed, runway.runway_id.c_str(), runway.count,
                         core::FormatAgo(runway.elapsed_sec).c_str());
             ImGui::PopStyleColor();
             RenderLengthSuffix(runway.length_ft);
@@ -60,13 +93,13 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
     } else if (category.history.has_value()) {
         const auto& history = *category.history;
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
-        ImGui::Text("    %s (%d, last %s)", history.runway_id.c_str(), history.count,
+        ImGui::Text("%s %s (%d, last %s)", kIconWaiting, history.runway_id.c_str(), history.count,
                     core::FormatAgo(history.elapsed_sec).c_str());
         ImGui::PopStyleColor();
         RenderLengthSuffix(history.length_ft);
     } else if (category.NeedsWindEstimate() && windEstimate.has_value()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
-        ImGui::Text("    ~ %s (wind)", windEstimate->runway_id.c_str());
+        ImGui::Text("%s %s (wind)", kIconWindEstimate, windEstimate->runway_id.c_str());
         ImGui::PopStyleColor();
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
@@ -82,9 +115,11 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
         }
     } else {
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
-        ImGui::TextUnformatted("    -- waiting for traffic");
+        ImGui::Text("%s waiting for traffic", kIconWaiting);
         ImGui::PopStyleColor();
     }
+
+    ImGui::Unindent(kUiWindowPaddingX);
 }
 
 // `includeWindAndAltimeter` is false in Both mode -- the header's own
@@ -98,13 +133,16 @@ void RenderAdvisorySentence(const core::ResolvedAdvisoryText& advisoryText, bool
 {
     const std::string& text =
         includeWindAndAltimeter ? advisoryText.with_wind_and_altimeter : advisoryText.without_wind_and_altimeter;
-    ImGui::TextWrapped("  %s", text.c_str());
+    ImGui::TextWrapped("%s", text.c_str());
 }
 
 void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core::PressureUnit pressureUnit,
                         core::AdvisoryDisplayMode displayMode,
                         const std::optional<core::ResolvedAdvisoryText>& advisoryText, bool showHeader)
 {
+    // Real Indent for the whole card body -- see RenderCategorySection.
+    ImGui::Indent(kUiWindowPaddingX);
+
     if (showHeader) {
         if (entry.name.has_value() && entry.distance_nm.has_value()) {
             ImGui::Text("%s - %s (%.1f nm)", entry.icao.c_str(), entry.name->c_str(), *entry.distance_nm);
@@ -122,32 +160,45 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
     // repeat it there -- shown for List and Both only.
     const bool showHeaderWindAltimeter = displayMode != core::AdvisoryDisplayMode::kNaturalLanguage;
 
-    if (showHeaderWindAltimeter && entry.current_wind.has_value()) {
-        const core::WindInfo& wind = *entry.current_wind;
-        ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
-        if (wind.is_calm) {
-            ImGui::TextUnformatted("  Wind: Calm");
-        } else {
-            ImGui::Text("  Wind: %.0f\xC2\xB0T @ %.0fkt", wind.direction_true_deg, wind.speed_kt);
-        }
-        ImGui::PopStyleColor();
-        ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
-        ImGui::TextUnformatted("(?)");
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) {
-            ImGui::BeginTooltip();
-            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 20.0f);
-            ImGui::Text("Source: %s.", core::WindEstimateSourceLabel(wind.source).c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::EndTooltip();
-        }
-    }
+    // Wind and altimeter share one line when both are present.
+    if (showHeaderWindAltimeter && (entry.current_wind.has_value() || entry.altimeter_pa.has_value())) {
+        bool needsSeparator = false;
 
-    if (showHeaderWindAltimeter && entry.altimeter_pa.has_value()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
-        ImGui::Text("  Altimeter: %s", core::FormatAltimeter(*entry.altimeter_pa, pressureUnit).c_str());
-        ImGui::PopStyleColor();
+        if (entry.current_wind.has_value()) {
+            const core::WindInfo& wind = *entry.current_wind;
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
+            if (wind.is_calm) {
+                ImGui::Text("%s Calm", kIconWind);
+            } else {
+                ImGui::Text("%s %.0f\xC2\xB0T @ %.0fkt", kIconWind, wind.direction_true_deg, wind.speed_kt);
+            }
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+            ImGui::TextUnformatted("(?)");
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 20.0f);
+                ImGui::Text("Source: %s.", core::WindEstimateSourceLabel(wind.source).c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
+            needsSeparator = true;
+        }
+
+        if (entry.altimeter_pa.has_value()) {
+            if (needsSeparator) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+                ImGui::TextUnformatted("|");
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorWind);
+            ImGui::Text("%s %s", kIconAltimeter, core::FormatAltimeter(*entry.altimeter_pa, pressureUnit).c_str());
+            ImGui::PopStyleColor();
+        }
     }
 
     const bool wantsSentence =
@@ -160,13 +211,17 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
     }
 
     if (displayMode == core::AdvisoryDisplayMode::kList || displayMode == core::AdvisoryDisplayMode::kBoth) {
-        RenderCategorySection("  Departures", entry.departures, entry.wind_estimate);
-        RenderCategorySection("  Arrivals", entry.arrivals, entry.wind_estimate);
+        const std::string departuresTitle = std::string(kIconDeparture) + " Departures";
+        const std::string arrivalsTitle = std::string(kIconArrival) + " Arrivals";
+        RenderCategorySection(departuresTitle.c_str(), entry.departures, entry.wind_estimate);
+        RenderCategorySection(arrivalsTitle.c_str(), entry.arrivals, entry.wind_estimate);
     }
 
     if (showRawMetar && entry.metar.has_value()) {
-        ImGui::Text("  METAR: %s", entry.metar->c_str());
+        ImGui::Text("METAR: %s", entry.metar->c_str());
     }
+
+    ImGui::Unindent(kUiWindowPaddingX);
 }
 
 void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry* entry, float diameter)
@@ -176,15 +231,26 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
     }
 
     ImVec2 topLeft = ImGui::GetCursorScreenPos();
-    // Extra strip to the right of the compass circle reserved for the
-    // windsock -- its mount point is fixed there regardless of wind
-    // direction, unlike the compass circle geometry it sits beside.
-    constexpr float kWindsockStripWidth = 50.0f;
-    ImGui::Dummy(ImVec2(diameter + kWindsockStripWidth, diameter));
+    ImGui::Dummy(ImVec2(diameter + kWindsockStripWidth, diameter)); // kWindsockStripWidth: Theme.h
     ImDrawList* drawList = ImGui::GetWindowDrawList();
 
     ImVec2 center(topLeft.x + diameter * 0.5f, topLeft.y + diameter * 0.5f);
     float radiusPx = diameter * 0.5f - 14.0f;
+
+    // Background compass ring: dim circle + N/E/S/W tick marks, drawn first
+    // so the runways/labels below sit on top of it.
+    auto PolarToPixel = [&](float radiusAtPx, double bearingDeg) {
+        double rad = core::ToRadians(bearingDeg);
+        return ImVec2(center.x + static_cast<float>(std::sin(rad)) * radiusAtPx,
+                      center.y - static_cast<float>(std::cos(rad)) * radiusAtPx);
+    };
+    drawList->AddCircle(center, radiusPx, kColorBorder, 48, 1.0f);
+    constexpr float kTickLen = 5.0f;
+    for (double bearingDeg : {0.0, 90.0, 180.0, 270.0}) {
+        ImVec2 tickInner = PolarToPixel(radiusPx, bearingDeg);
+        ImVec2 tickOuter = PolarToPixel(radiusPx + kTickLen, bearingDeg);
+        drawList->AddLine(tickInner, tickOuter, kColorBorder, 1.0f);
+    }
 
     // Project every threshold onto a local, north-up tangent plane centered
     // on the airport's reference point (apt.dat has no local coordinate
@@ -208,8 +274,20 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
         return ImVec2(center.x + static_cast<float>(offset.east_ft) * ftToPx,
                       center.y - static_cast<float>(offset.north_ft) * ftToPx);
     };
+    // Background chip behind each runway ID for legibility. Position is
+    // clamped to the diagram's own [topLeft, topLeft+diameter] square -- a
+    // threshold near the circle's edge could otherwise place the label
+    // outside the diagram's reserved layout space (seen at LEBL, whose
+    // parallel runways sit close to that edge).
+    constexpr float kChipPadding = 2.0f;
     auto DrawLabel = [&](const ImVec2& point, ImU32 color, const std::string& id) {
-        ImVec2 labelPos(point.x + ((point.x >= center.x) ? 2.0f : -18.0f), point.y - 6.0f);
+        ImVec2 textSize = ImGui::CalcTextSize(id.c_str());
+        ImVec2 labelPos(point.x + ((point.x >= center.x) ? 3.0f : -textSize.x - 3.0f), point.y - textSize.y * 0.5f);
+        labelPos.x = std::clamp(labelPos.x, topLeft.x + kChipPadding, topLeft.x + diameter - textSize.x - kChipPadding);
+        labelPos.y = std::clamp(labelPos.y, topLeft.y + kChipPadding, topLeft.y + diameter - textSize.y - kChipPadding);
+        drawList->AddRectFilled(ImVec2(labelPos.x - kChipPadding, labelPos.y - kChipPadding),
+                                 ImVec2(labelPos.x + textSize.x + kChipPadding, labelPos.y + textSize.y + kChipPadding),
+                                 kColorBgPanel, 2.0f);
         drawList->AddText(labelPos, color, id.c_str());
     };
 
@@ -226,8 +304,28 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
         ImVec2 pixelB = ToPixel(offsets[i + 1]);
         ImVec2 midpoint((pixelA.x + pixelB.x) * 0.5f, (pixelA.y + pixelB.y) * 0.5f);
 
-        drawList->AddLine(midpoint, pixelA, colorA, 2.0f);
-        drawList->AddLine(midpoint, pixelB, colorB, 2.0f);
+        // True-width pavement as a filled rectangle, clamped to a legible
+        // pixel range since the real width is invisible at this scale.
+        // Split at the midpoint so each half can carry its own end's color.
+        ImVec2 dir(pixelB.x - pixelA.x, pixelB.y - pixelA.y);
+        float runwayLenPx = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (runwayLenPx > 1e-4f) {
+            dir.x /= runwayLenPx;
+            dir.y /= runwayLenPx;
+        }
+        ImVec2 perp(-dir.y, dir.x);
+        float widthFt = static_cast<float>(endA.width_m / 0.3048);
+        float halfWidthPx = std::clamp(widthFt * ftToPx, 2.5f, 6.0f) * 0.5f;
+
+        auto RunwayQuad = [&](const ImVec2& from, const ImVec2& to, ImU32 color) {
+            ImVec2 near0(from.x + perp.x * halfWidthPx, from.y + perp.y * halfWidthPx);
+            ImVec2 near1(from.x - perp.x * halfWidthPx, from.y - perp.y * halfWidthPx);
+            ImVec2 far0(to.x + perp.x * halfWidthPx, to.y + perp.y * halfWidthPx);
+            ImVec2 far1(to.x - perp.x * halfWidthPx, to.y - perp.y * halfWidthPx);
+            drawList->AddQuadFilled(near0, far0, far1, near1, color);
+        };
+        RunwayQuad(pixelA, midpoint, colorA);
+        RunwayQuad(midpoint, pixelB, colorB);
 
         DrawLabel(pixelA, colorA, endA.id);
         DrawLabel(pixelB, colorB, endB.id);
@@ -349,7 +447,7 @@ void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events)
             ImGui::TableSetColumnIndex(4);
             const bool isDeparture = (event.category == core::SightingCategory::kDeparture);
             ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
-            ImGui::TextUnformatted(isDeparture ? "Departure" : "Arrival");
+            ImGui::Text("%s %s", isDeparture ? kIconDeparture : kIconArrival, isDeparture ? "Departure" : "Arrival");
             ImGui::PopStyleColor();
         }
         ImGui::EndTable();

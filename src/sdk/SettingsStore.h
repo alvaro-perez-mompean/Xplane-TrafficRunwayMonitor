@@ -23,7 +23,6 @@ struct PersistedSettings {
     int search_radius_nm = 15;
     int max_displayed_airports = 5;
     int active_window_min = 30;
-    float text_size_scale = 1.0f;
     bool show_raw_metar = false;
     bool debug_log_runway_matches = false;
     int pressure_unit = 0; // 0 = inHg, 1 = hPa -- mirrors core::PressureUnit's ordering

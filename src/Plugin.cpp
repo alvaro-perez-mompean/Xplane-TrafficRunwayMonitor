@@ -565,7 +565,6 @@ PLUGIN_API int XPluginEnable(void)
         settings.search_radius_nm = persisted->search_radius_nm;
         settings.max_displayed_airports = persisted->max_displayed_airports;
         settings.active_window_min = persisted->active_window_min;
-        settings.text_size_scale = persisted->text_size_scale;
         settings.show_raw_metar = persisted->show_raw_metar;
         settings.debug_log_runway_matches = persisted->debug_log_runway_matches;
         settings.pressure_unit =
@@ -606,7 +605,6 @@ PLUGIN_API void XPluginDisable(void)
         persisted.search_radius_nm = settings.search_radius_nm;
         persisted.max_displayed_airports = settings.max_displayed_airports;
         persisted.active_window_min = settings.active_window_min;
-        persisted.text_size_scale = settings.text_size_scale;
         persisted.show_raw_metar = settings.show_raw_metar;
         persisted.debug_log_runway_matches = settings.debug_log_runway_matches;
         persisted.pressure_unit = (settings.pressure_unit == core::PressureUnit::kHpa) ? 1 : 0;
