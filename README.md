@@ -85,11 +85,13 @@ false positives while still catching real, sustained runway usage.
 
 ## Building
 
-Requires CMake and a C++17 toolchain. The X-Plane SDK and all other
-third-party dependencies (ImGui, ImgWindow, LTAPI) are vendored under
-`third_party/`; Catch2 (for the test suite) is fetched automatically by CMake.
+Requires CMake and a C++17 toolchain. The X-Plane SDK and ImgWindow are
+vendored under `third_party/`; ImGui and LTAPI are git submodules pinned
+to a tagged release (see `.gitmodules`) -- run `git submodule update --init`
+after cloning. Catch2 (for the test suite) is fetched automatically by CMake.
 
 ```sh
+git submodule update --init
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --config RelWithDebInfo --target TrafficRunwayMonitor
 ```
