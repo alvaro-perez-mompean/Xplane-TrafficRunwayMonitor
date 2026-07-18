@@ -34,6 +34,7 @@
 #include "core/Aggregator.h"
 #include "core/AptDat.h"
 #include "core/EventLog.h"
+#include "core/FmsOrigin.h"
 #include "core/PhaseClassifier.h"
 #include "core/RunwayMatcher.h"
 #include "core/SightingTracker.h"
@@ -474,7 +475,7 @@ void RunAnalysisCycle()
     const std::vector<core::NearbyAirport> nearest = core::FindNearestAirports(
         g_airportDatabase, lat, lon, static_cast<double>(g_mainWindow->settings.search_radius_nm));
 
-    sdk::FmsOriginDestination fms = g_fmsOrigin.Resolve(nowSec);
+    sdk::FmsOriginDestination fms = g_fmsOrigin.Resolve();
 
     // See g_originOverride's own comment for the sticky-pin/reset design.
     // Origin and destination unlock independently since the native FMS
@@ -718,8 +719,8 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int inMessage, void* inParam
     // the plane index, 0 = the user's own plane) and
     // XPLM_MSG_AIRPORT_LOADED (the user's plane is repositioned at a new
     // airport -- fires on Start Flight/situation load/replay start even
-    // when the aircraft type is unchanged, e.g. restarting the same ToLiss
-    // for a new route). PLANE_LOADED alone would miss that second case.
+    // when the aircraft type is unchanged, e.g. restarting the same
+    // aircraft for a new route). PLANE_LOADED alone would miss that second case.
     // Resetting on either is harmless even when redundant (e.g. both firing
     // for the same restart) -- this is session-only UI state, not anything
     // that needs debouncing.
