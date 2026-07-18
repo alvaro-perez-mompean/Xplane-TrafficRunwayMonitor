@@ -421,7 +421,7 @@ void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events)
         ImGui::TableSetupColumn("Runway");
         ImGui::TableSetupColumn("Aircraft");
         ImGui::TableSetupColumn("Type");
-        ImGui::TableAutoHeaders();
+        ImGui::TableHeadersRow();
 
         for (const auto& event : events) {
             ImGui::TableNextRow();
@@ -485,7 +485,7 @@ void RenderSimbriefFuelPlan(const core::SimbriefFuelPlan& fuel)
     }
     ImGui::TextDisabled("%s", header.c_str());
 
-    if (ImGui::BeginTable("##simbrief_fuel", 2, ImGuiTableFlags_SizingPolicyFixedX)) {
+    if (ImGui::BeginTable("##simbrief_fuel", 2, ImGuiTableFlags_SizingFixedFit)) {
         RenderFuelRow("TAXI", fuel.taxi);
         RenderFuelRow("TRIP", fuel.trip);
         RenderFuelRow("CONT", fuel.contingency);
@@ -547,7 +547,7 @@ void RenderSimbriefWeights(const core::SimbriefWeights& weights, const core::Sim
     }
     ImGui::TextDisabled("%s", header.c_str());
 
-    if (ImGui::BeginTable("##simbrief_weights", 4, ImGuiTableFlags_SizingPolicyFixedX)) {
+    if (ImGui::BeginTable("##simbrief_weights", 4, ImGuiTableFlags_SizingFixedFit)) {
         // Explicit widths, not left to auto-size-to-content -- auto-sizing
         // packed EST/MAX right up against each other with no breathing room.
         // Based on CalcTextSize (which already reflects the window's current
@@ -560,7 +560,7 @@ void RenderSimbriefWeights(const core::SimbriefWeights& weights, const core::Sim
         ImGui::TableSetupColumn("EST", ImGuiTableColumnFlags_WidthFixed, numColWidth);
         ImGui::TableSetupColumn("MAX", ImGuiTableColumnFlags_WidthFixed, numColWidth);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, numColWidth + kUiItemSpacingX);
-        ImGui::TableAutoHeaders();
+        ImGui::TableHeadersRow();
 
         if (weights.pax_count.has_value()) {
             ImGui::TableNextRow();
@@ -809,7 +809,7 @@ void RenderIcaoOverrideField(const char* label, IcaoOverrideFieldState& state, b
     ImGui::PopStyleColor();
 
     // Escape-on-focus-loss revert -- see this function's own doc comment.
-    if (editable && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape), /*repeat=*/false)) {
+    if (editable && ImGui::IsKeyPressed(ImGuiKey_Escape, /*repeat=*/false)) {
         std::snprintf(state.buf, sizeof(state.buf), "%s", state.last_committed_buf);
     } else if (edited && editable) {
         std::snprintf(state.last_committed_buf, sizeof(state.last_committed_buf), "%s", state.buf);

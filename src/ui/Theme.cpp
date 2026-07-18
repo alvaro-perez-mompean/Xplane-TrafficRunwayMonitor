@@ -76,9 +76,9 @@ void ApplyTheme()
 
     colors[ImGuiCol_Tab] = ToImVec4(kColorBgPanel);
     colors[ImGuiCol_TabHovered] = ToImVec4(kColorBgFrameHovered);
-    colors[ImGuiCol_TabActive] = ToImVec4(kColorBgFrameActive);
-    colors[ImGuiCol_TabUnfocused] = ToImVec4(kColorBgPanel);
-    colors[ImGuiCol_TabUnfocusedActive] = ToImVec4(kColorBgFrame);
+    colors[ImGuiCol_TabSelected] = ToImVec4(kColorBgFrameActive);
+    colors[ImGuiCol_TabDimmed] = ToImVec4(kColorBgPanel);
+    colors[ImGuiCol_TabDimmedSelected] = ToImVec4(kColorBgFrame);
 
     colors[ImGuiCol_TableHeaderBg] = ToImVec4(kColorBgFrame);
     colors[ImGuiCol_TableBorderStrong] = ToImVec4(kColorBorder);
