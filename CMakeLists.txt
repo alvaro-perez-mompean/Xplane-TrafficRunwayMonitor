@@ -65,6 +65,7 @@ endif()
 add_library(TrafficRunwayMonitor SHARED
     src/Plugin.cpp
     src/sdk/AptDatLoader.cpp
+    src/sdk/CifpLoader.cpp
     src/sdk/TcasSource.cpp
     src/sdk/LtapiSource.cpp
     src/sdk/FmsOrigin.cpp
@@ -162,6 +163,7 @@ add_custom_command(TARGET TrafficRunwayMonitor POST_BUILD
 add_library(trm_core STATIC
     src/core/GeoMath.cpp
     src/core/AptDat.cpp
+    src/core/Cifp.cpp
     src/core/ScenerypacksIni.cpp
     src/core/RunwayMatcher.cpp
     src/core/SlotValidity.cpp
