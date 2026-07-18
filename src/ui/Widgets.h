@@ -14,6 +14,7 @@
 #include "core/AptDat.h"
 #include "core/EventLog.h"
 #include "core/Format.h"
+#include "core/SimbriefOfp.h"
 #include "core/WindEstimate.h"
 #include "ui/Theme.h"
 
@@ -103,6 +104,36 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
 // at all -- only LTAPI-sourced sightings ever populate it). Renders a dim
 // placeholder line instead of an empty table when `events` is empty.
 void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events);
+
+// Flight Plan tab: LIDO-style fuel summary table from the last successful
+// Simbrief fetch (see core::SimbriefFuelPlan) -- Taxi/Trip/Contingency/
+// Alternate/Reserve/Extra rows plus a highlighted Block total, unit
+// suffixed in the header when Simbrief reported one (kgs/lbs). Each row is
+// only rendered when its own figure is present -- see
+// core::SimbriefFuelPlan's own comment on nullopt vs. genuine zero.
+// Renders nothing at all if `fuel` has no figures whatsoever (no fetch yet).
+void RenderSimbriefFuelPlan(const core::SimbriefFuelPlan& fuel);
+
+// Flight Plan tab: LIDO-style weights summary table from the last
+// successful Simbrief fetch (see core::SimbriefWeights) -- PAX (plain
+// headcount)/Cargo/Payload/ZFW/Fuel/TOW/LAW rows, EST and MAX columns.
+// Unlike a real LIDO OFP, there is no ACTUAL column -- this plugin has no
+// live weight source to fill it with. The Fuel row is sourced from `fuel`
+// (block/max_tanks) rather than `weights` -- same figures already shown in
+// RenderSimbriefFuelPlan's own table, just tonnes-formatted here to match
+// the rest of this table -- and gets a "poss extra" note when max_tanks
+// exceeds the planned block fuel. Each row (and the whole table) only
+// renders when it has at least one figure to show.
+void RenderSimbriefWeights(const core::SimbriefWeights& weights, const core::SimbriefFuelPlan& fuel);
+
+// Flight Plan tab: header/identity block from the last successful Simbrief
+// fetch (see core::SimbriefHeader) -- callsign/departure date/aircraft
+// type+reg/cost index on one line, then ALTN, FL STEPS, AVG W/C + AVG ISA,
+// and the OFP's own release id/date, each only shown if present. Doesn't
+// repeat origin/destination (already shown by the ICAO override fields
+// above it) or TOW/ZFW/LAW (already in RenderSimbriefWeights' table).
+// Renders nothing at all if `header` has no figures whatsoever.
+void RenderSimbriefHeader(const core::SimbriefHeader& header);
 
 // Caller-owned persistent state for one RenderIcaoOverrideField call site
 // -- ImGui is immediate-mode and doesn't own text-editing state itself,

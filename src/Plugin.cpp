@@ -557,13 +557,17 @@ void RunAnalysisCycle()
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kIdle;
             g_mainWindow->display.simbrief_fetch_message.clear();
             g_mainWindow->display.simbrief_route_text.reset();
+            g_mainWindow->display.simbrief_fuel = core::SimbriefFuelPlan{};
+            g_mainWindow->display.simbrief_weights = core::SimbriefWeights{};
+            g_mainWindow->display.simbrief_header = core::SimbriefHeader{};
             break;
         case sdk::SimbriefFetchStatus::kFetching:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kFetching;
             g_mainWindow->display.simbrief_fetch_message = "Fetching...";
-            // simbrief_route_text deliberately left untouched -- keep
-            // showing the last successful route while a re-fetch is in
-            // flight rather than flashing it away.
+            // simbrief_route_text/simbrief_fuel/simbrief_weights/
+            // simbrief_header deliberately left untouched -- keep showing
+            // the last successful fetch while a re-fetch is in flight
+            // rather than flashing it away.
             break;
         case sdk::SimbriefFetchStatus::kSuccess:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kSuccess;
@@ -574,13 +578,17 @@ void RunAnalysisCycle()
                 g_mainWindow->display.simbrief_fetch_message.clear();
             }
             g_mainWindow->display.simbrief_route_text = simbrief.route_text;
+            g_mainWindow->display.simbrief_fuel = simbrief.fuel;
+            g_mainWindow->display.simbrief_weights = simbrief.weights;
+            g_mainWindow->display.simbrief_header = simbrief.header;
             break;
         case sdk::SimbriefFetchStatus::kError:
             g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kError;
             g_mainWindow->display.simbrief_fetch_message = simbrief.error_message;
-            // simbrief_route_text left untouched -- a failed re-fetch
-            // (e.g. transient network blip) shouldn't wipe out the last
-            // known-good route.
+            // simbrief_route_text/simbrief_fuel/simbrief_weights/
+            // simbrief_header left untouched -- a failed re-fetch (e.g.
+            // transient network blip) shouldn't wipe out the last
+            // known-good flight plan.
             break;
     }
     if (simbriefGenerationChanged) {
@@ -811,9 +819,10 @@ PLUGIN_API void XPluginDisable(void)
 }
 
 // See g_originOverride/g_flightResetEpoch's own comments. Also dismisses
-// the Simbrief fetch display state (status/message/route) -- without this,
-// a previous flight's "Loaded KJFK -> KLAX" toast or (worse, since it's not
-// time-limited) its route line would otherwise linger into the new flight,
+// the Simbrief fetch display state (status/message/route/fuel/weights/
+// header) -- without this, a previous flight's "Loaded KJFK -> KLAX" toast
+// or (worse, since they're not time-limited) its route line and
+// fuel/weights/header blocks would otherwise linger into the new flight,
 // since SimbriefClient::Poll() keeps returning the same cached result until
 // the user explicitly fetches again. g_simbriefDismissedGeneration is what
 // actually suppresses it (see RunAnalysisCycle's simbriefResultIsStale) --
@@ -830,11 +839,24 @@ void ResetFlightPlanForNewFlight()
     g_originOverride.reset();
     g_destinationOverride.reset();
     ++g_flightResetEpoch;
-    g_simbriefDismissedGeneration = g_simbriefClient.Poll().generation;
+    // Poll().generation only bumps when a fetch *completes* (kSuccess/
+    // kError) -- kFetching leaves it unchanged. So a fetch still in flight
+    // right now hasn't been counted yet; dismissing only through its
+    // pre-completion generation would let that one fetch's result (still
+    // belonging to the flight that's ending) slip through as "not stale"
+    // once it finishes and bumps past this dismissal point. RequestFetch
+    // never allows more than one fetch in flight at a time, so a flat +1
+    // fully covers it.
+    const sdk::SimbriefFetchResult pendingSimbrief = g_simbriefClient.Poll();
+    g_simbriefDismissedGeneration =
+        pendingSimbrief.generation + (pendingSimbrief.status == sdk::SimbriefFetchStatus::kFetching ? 1 : 0);
     if (g_mainWindow) {
         g_mainWindow->display.simbrief_fetch_status = ui::SimbriefFetchUiStatus::kIdle;
         g_mainWindow->display.simbrief_fetch_message.clear();
         g_mainWindow->display.simbrief_route_text.reset();
+        g_mainWindow->display.simbrief_fuel = core::SimbriefFuelPlan{};
+        g_mainWindow->display.simbrief_weights = core::SimbriefWeights{};
+        g_mainWindow->display.simbrief_header = core::SimbriefHeader{};
     }
 }
 

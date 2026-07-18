@@ -74,6 +74,9 @@ void RunFetch(std::shared_ptr<SimbriefClientSharedState> state, std::string pilo
         state->result.origin_icao.reset();
         state->result.destination_icao.reset();
         state->result.route_text.reset();
+        state->result.fuel = core::SimbriefFuelPlan{};
+        state->result.weights = core::SimbriefWeights{};
+        state->result.header = core::SimbriefHeader{};
         state->result.error_message = message;
         ++state->result.generation;
     };
@@ -150,6 +153,9 @@ void RunFetch(std::shared_ptr<SimbriefClientSharedState> state, std::string pilo
         state->result.origin_icao = parsed.origin_icao;
         state->result.destination_icao = parsed.destination_icao;
         state->result.route_text = parsed.route_text;
+        state->result.fuel = core::ParseSimbriefFuelPlan(body);
+        state->result.weights = core::ParseSimbriefWeights(body);
+        state->result.header = core::ParseSimbriefHeader(body);
         ++state->result.generation;
     } catch (const std::exception& e) {
         finishWithError(std::string("failed to parse Simbrief response: ") + e.what());
@@ -209,6 +215,9 @@ void SimbriefClient::RequestFetch(const std::string& pilotId)
     state_->result.origin_icao.reset();
     state_->result.destination_icao.reset();
     state_->result.route_text.reset();
+    state_->result.fuel = core::SimbriefFuelPlan{};
+    state_->result.weights = core::SimbriefWeights{};
+    state_->result.header = core::SimbriefHeader{};
     state_->result.error_message = "Simbrief fetch is not supported on this platform";
     ++state_->result.generation;
 #endif

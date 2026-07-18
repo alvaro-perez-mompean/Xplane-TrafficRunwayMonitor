@@ -284,11 +284,20 @@ void MainWindow::RenderFlightPlanTab()
         ImGui::PopStyleColor();
     }
 
+    ImGui::Spacing();
+    RenderSimbriefHeader(display.simbrief_header);
+
     if (display.simbrief_route_text.has_value()) {
         ImGui::Spacing();
         ImGui::TextDisabled("Route");
         ImGui::TextWrapped("%s", display.simbrief_route_text->c_str());
     }
+
+    ImGui::Spacing();
+    RenderSimbriefFuelPlan(display.simbrief_fuel);
+
+    ImGui::Spacing();
+    RenderSimbriefWeights(display.simbrief_weights, display.simbrief_fuel);
 }
 
 void MainWindow::RenderSettingsTab()

@@ -12,6 +12,7 @@
 #include "core/AptDat.h"
 #include "core/EventLog.h"
 #include "core/Format.h"
+#include "core/SimbriefOfp.h"
 #include "ui/Widgets.h"
 
 // The plugin's single ImGui dashboard window: real tabs (Dashboard/
@@ -112,6 +113,19 @@ struct DisplayState {
     // reference text the user may want to keep reading, not a transient
     // confirmation toast.
     std::optional<std::string> simbrief_route_text;
+    // LIDO-style fuel figures from the last successful fetch (see
+    // core::SimbriefFuelPlan) -- same not-time-limited lifetime as
+    // simbrief_route_text above, default-constructed (all fields nullopt,
+    // renders nothing) until the first fetch.
+    core::SimbriefFuelPlan simbrief_fuel;
+    // LIDO-style weight figures from the last successful fetch (see
+    // core::SimbriefWeights) -- same lifetime/default convention as
+    // simbrief_fuel above.
+    core::SimbriefWeights simbrief_weights;
+    // Header/identity figures from the last successful fetch (see
+    // core::SimbriefHeader) -- same lifetime/default convention as
+    // simbrief_fuel above.
+    core::SimbriefHeader simbrief_header;
 };
 
 // User-adjustable settings. The orchestration cycle reads

@@ -6,6 +6,8 @@
 #include <string>
 #include <thread>
 
+#include "core/SimbriefOfp.h"
+
 // Async fetch of a Simbrief OFP (flight plan) via Simbrief's public HTTP
 // API, triggered by an explicit user action (Flight Plan tab's "Fetch from
 // Simbrief" button) -- never polled automatically. Real network glue, not
@@ -38,6 +40,15 @@ struct SimbriefFetchResult {
     std::optional<std::string> destination_icao;
     // LIDO-style route line -- see core::SimbriefOriginDestination::route_text.
     std::optional<std::string> route_text;
+    // Fuel figures -- see core::SimbriefFuelPlan. Default-constructed (all
+    // fields nullopt) until the first successful fetch.
+    core::SimbriefFuelPlan fuel;
+    // Weight figures -- see core::SimbriefWeights. Same default-constructed-
+    // until-first-fetch convention as fuel above.
+    core::SimbriefWeights weights;
+    // Header/identity figures -- see core::SimbriefHeader. Same default-
+    // constructed-until-first-fetch convention as fuel/weights above.
+    core::SimbriefHeader header;
     std::string error_message; // meaningful only when status == kError
     // Bumped once per completed fetch (success or error) -- lets Plugin.cpp
     // apply a just-finished fetch's ICAOs into the origin/destination
