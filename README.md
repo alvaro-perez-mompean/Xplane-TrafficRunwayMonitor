@@ -50,8 +50,13 @@ native X-Plane FMS entries is a possible future addition.
 Open the plugin's window from X-Plane's Plugins menu. It has three tabs:
 - **Dashboard**: currently-tracked traffic and their live phase/runway match.
 - **History**: confirmed arrival/departure events (icao/runway/category/callsign).
-- **Settings**: traffic source selection and other runtime options, including
-  optional debug logging of runway matches to `Log.txt`.
+- **Settings**: display and search options (altimeter unit, airport card
+  layout, search radius), plus debug options including logging runway
+  matches to `Log.txt`.
+
+| Dashboard | History | Settings |
+|-----------|---------|----------|
+| ![Dashboard tab](docs/images/dashboard.jpg) | ![History tab](docs/images/history.jpg) | ![Settings tab](docs/images/settings.jpg) |
 
 ## How the matching/confirmation logic works
 
