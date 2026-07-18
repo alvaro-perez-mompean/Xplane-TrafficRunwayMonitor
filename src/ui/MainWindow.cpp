@@ -1,5 +1,6 @@
 #include "ui/MainWindow.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <memory>
@@ -7,6 +8,7 @@
 #include "XPLMUtilities.h"
 
 #include "sdk/Log.h"
+#include "sdk/PluginPath.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
@@ -31,10 +33,62 @@ void LogFatalMsg(const char* szPath, int ln, const char* szFunc, const char* szM
 
 namespace trm::ui {
 
+namespace {
+
+// Settings-tab section header. ImGui 1.78 WIP predates ImGui::SeparatorText,
+// hence the manual icon+label+Separator() build here.
+void RenderSectionHeader(const char* icon, const char* label)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorAccent);
+    ImGui::Text("%s %s", icon, label);
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+    ImGui::Spacing();
+}
+
+// Used both for ImGui::SetWindowFontScale (buildInterface) and to scale the
+// runway diagram (RenderCenteredRunwayDiagram) by the same factor, so text
+// and diagram geometry stay proportional at every window size.
+float ComputeAutoTextScale()
+{
+    return std::clamp(ImGui::GetWindowWidth() / static_cast<float>(kDefaultWindowWidth), kMinAutoTextScale,
+                       kMaxAutoTextScale);
+}
+
+// RenderRunwayDiagram, sized to fill the card's available width (capped so
+// it never outgrows it) and centered with a small margin on each side.
+void RenderCenteredRunwayDiagram(const core::Airport* airport, const core::AirportEntry* entry)
+{
+    const float availableWidth = ImGui::GetContentRegionAvail().x;
+    const float rawMaxDiameter = availableWidth - 2.0f * kUiWindowPaddingX - kWindsockStripWidth;
+    // Ternaries, not std::max/std::min -- XPLMUtilities.h pulls in
+    // <windows.h> without NOMINMAX here, whose bare max/min macros mangle
+    // any std::max/std::min call in this file.
+    const float maxDiameter = rawMaxDiameter > 0.0f ? rawMaxDiameter : 0.0f;
+
+    const float diameter = std::clamp(kRunwayDiagramDiameter * kRunwayDiagramSizeMultiplier * ComputeAutoTextScale(),
+                                       0.0f, maxDiameter);
+
+    const float totalWidth = diameter + kWindsockStripWidth;
+    const float rawLeftOffset = (availableWidth - totalWidth) * 0.5f;
+    const float leftOffset = rawLeftOffset > 0.0f ? rawLeftOffset : 0.0f;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + leftOffset);
+
+    RenderRunwayDiagram(airport, entry, diameter);
+}
+
+} // namespace
+
 MainWindow::MainWindow(int left, int top, int right, int bottom) : ImgWindow(left, top, right, bottom)
 {
     SetWindowTitle("Traffic Runway Monitor");
     SetWindowResizingLimits(kMinWindowWidth, kMinWindowHeight, kMaxWindowWidth, kMaxWindowHeight);
+
+    // Must run after the ImgWindow base constructor above, which is what
+    // creates the ImGui context ApplyTheme()'s ImGui::GetStyle() call needs
+    // -- calling it any earlier (e.g. from InitFontAtlas(), before any
+    // MainWindow exists) dereferences a null context and crashes.
+    ApplyTheme();
 }
 
 void MainWindow::InitFontAtlas()
@@ -50,24 +104,57 @@ void MainWindow::InitFontAtlas()
 
     auto atlas = std::make_shared<ImgFontAtlas>();
     atlas->AddFontFromFileTTF(fontPath.c_str(), 16.0f);
+
+    // Icon font (third_party/FontAwesome, bundled with the plugin itself --
+    // unlike DejaVuSans.ttf above, borrowed from X-Plane's own install).
+    // Merged into the same ImFont via MergeMode -- see Theme.h's kIcon*
+    // constants. `static`, not a plain local: ImFontConfig::GlyphRanges is a
+    // raw pointer ImGui reads from for the font's entire lifetime ("THE
+    // ARRAY DATA NEEDS TO PERSIST AS LONG AS THE FONT IS ALIVE"), which a
+    // stack-local vector wouldn't satisfy.
+    static const std::vector<ImWchar> kIconGlyphRanges = [] {
+        std::vector<ImWchar> ranges;
+        ranges.reserve(kIconGlyphCodepoints.size() * 2 + 1);
+        for (unsigned short codepoint : kIconGlyphCodepoints) {
+            ranges.push_back(codepoint);
+            ranges.push_back(codepoint);
+        }
+        ranges.push_back(0);
+        return ranges;
+    }();
+
+    // Skipped (icons render as tofu boxes) if the plugin's own path can't
+    // be resolved.
+    if (std::optional<std::string> iconFontPath = sdk::IconFontPath(); iconFontPath.has_value()) {
+        ImFontConfig iconFontConfig;
+        iconFontConfig.MergeMode = true;
+        atlas->AddFontFromFileTTF(iconFontPath->c_str(), 16.0f, &iconFontConfig, kIconGlyphRanges.data());
+    }
+
     atlas->bindTexture();
     ImgWindow::sFontAtlas = atlas;
 }
 
 void MainWindow::buildInterface()
 {
-    ImGui::SetWindowFontScale(settings.text_size_scale);
+    ImGui::SetWindowFontScale(ComputeAutoTextScale());
 
     if (ImGui::BeginTabBar("##trm_tab_bar", ImGuiTabBarFlags_NoTooltip)) {
-        if (ImGui::BeginTabItem("Dashboard")) {
+        char dashboardLabel[32];
+        std::snprintf(dashboardLabel, sizeof(dashboardLabel), "%s Dashboard", kIconDashboardTab);
+        if (ImGui::BeginTabItem(dashboardLabel)) {
             RenderDashboardTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("History")) {
+        char historyLabel[32];
+        std::snprintf(historyLabel, sizeof(historyLabel), "%s History", kIconHistoryTab);
+        if (ImGui::BeginTabItem(historyLabel)) {
             RenderHistoryTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Settings")) {
+        char settingsLabel[32];
+        std::snprintf(settingsLabel, sizeof(settingsLabel), "%s Settings", kIconSettingsTab);
+        if (ImGui::BeginTabItem(settingsLabel)) {
             RenderSettingsTab();
             ImGui::EndTabItem();
         }
@@ -78,7 +165,19 @@ void MainWindow::buildInterface()
 void MainWindow::RenderDashboardTab()
 {
     ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
-    ImGui::TextUnformatted("Key: * active   ~ wind guess (see ?)   -- waiting");
+    ImGui::TextUnformatted("Key:");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
+    ImGui::Text("%s confirmed", kIconConfirmed);
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
+    ImGui::Text("%s wind guess (see ?)", kIconWindEstimate);
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+    ImGui::Text("%s waiting", kIconWaiting);
     ImGui::PopStyleColor();
     ImGui::Spacing();
 
@@ -92,12 +191,19 @@ void MainWindow::RenderDashboardTab()
         ImGui::PopStyleColor();
     } else {
         if (hasPinned) {
-            ImGui::TextUnformatted(display.pinned_kind == core::PinnedKind::kOrigin ? "ORIGIN" : "DESTINATION");
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorAccent);
+            ImGui::Text("%s %s", kIconDashboardTab,
+                        display.pinned_kind == core::PinnedKind::kOrigin ? "ORIGIN" : "DESTINATION");
+            ImGui::PopStyleColor();
+
+            CardScope pinnedCard = BeginCard();
             RenderAirportCard(*display.pinned_entry, settings.show_raw_metar, settings.pressure_unit,
                                settings.advisory_display_mode, display.pinned_advisory_text);
             ImGui::Spacing();
-            RenderRunwayDiagram(display.pinned_airport, &*display.pinned_entry);
+            RenderCenteredRunwayDiagram(display.pinned_airport, &*display.pinned_entry);
+            EndCard(pinnedCard);
             ImGui::Spacing();
+
             if (hasNearby) {
                 ImGui::Separator();
                 ImGui::Spacing();
@@ -105,18 +211,22 @@ void MainWindow::RenderDashboardTab()
         }
 
         if (hasNearby) {
-            ImGui::TextUnformatted("NEARBY");
+            ImGui::PushStyleColor(ImGuiCol_Text, kColorAccent);
+            ImGui::Text("%s NEARBY", kIconNearby);
+            ImGui::PopStyleColor();
             if (RenderNearbyAirportSelector(display.nearby_candidates, interaction.selected_nearby_icao) &&
                 interaction.selected_nearby_icao.has_value() && interaction.on_nearby_selection_changed) {
                 interaction.on_nearby_selection_changed(*interaction.selected_nearby_icao);
             }
             ImGui::Spacing();
             if (display.selected_nearby_entry.has_value()) {
+                CardScope nearbyCard = BeginCard();
                 RenderAirportCard(*display.selected_nearby_entry, settings.show_raw_metar, settings.pressure_unit,
                                    settings.advisory_display_mode, display.selected_nearby_advisory_text,
                                    /*showHeader=*/false);
                 ImGui::Spacing();
-                RenderRunwayDiagram(display.selected_nearby_airport, &*display.selected_nearby_entry);
+                RenderCenteredRunwayDiagram(display.selected_nearby_airport, &*display.selected_nearby_entry);
+                EndCard(nearbyCard);
             }
         }
     }
@@ -128,17 +238,7 @@ void MainWindow::RenderDashboardTab()
 
 void MainWindow::RenderSettingsTab()
 {
-    RenderPresetSelector("Text size", kTextSizePresets, settings.text_size_scale, "%.2fx", &settings.text_size_scale);
-    ImGui::Spacing();
-
-    RenderPresetSelector("Search radius", kSearchRadiusPresetsNm, settings.search_radius_nm, "%d nm",
-                          &settings.search_radius_nm);
-    RenderPresetSelector("Max nearby airports", kMaxAirportsPresets, settings.max_displayed_airports, "%d",
-                          &settings.max_displayed_airports);
-    RenderPresetSelector("Active window", kActiveWindowPresetsMin, settings.active_window_min, "%d min",
-                          &settings.active_window_min);
-    ImGui::Spacing();
-
+    RenderSectionHeader(kIconDisplaySection, "Display");
     ImGui::TextUnformatted("Altimeter unit");
     ImGui::SameLine();
     if (ImGui::RadioButton("inHg", settings.pressure_unit == core::PressureUnit::kInHg)) {
@@ -166,9 +266,20 @@ void MainWindow::RenderSettingsTab()
     }
     ImGui::Spacing();
 
+    RenderSectionHeader(kIconSearchSection, "Search");
+    RenderPresetSelector("Search radius", kSearchRadiusPresetsNm, settings.search_radius_nm, "%d nm",
+                          &settings.search_radius_nm);
+    RenderPresetSelector("Max nearby airports", kMaxAirportsPresets, settings.max_displayed_airports, "%d",
+                          &settings.max_displayed_airports);
+    RenderPresetSelector("Active window", kActiveWindowPresetsMin, settings.active_window_min, "%d min",
+                          &settings.active_window_min);
+    ImGui::Spacing();
+
+    RenderSectionHeader(kIconStartupSection, "Startup");
     ImGui::Checkbox("Open window automatically on startup", &settings.auto_open_on_startup);
     ImGui::Spacing();
 
+    RenderSectionHeader(kIconDebug, "Debug");
     ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
     ImGui::Checkbox("Show raw METAR (debug)", &settings.show_raw_metar);
     ImGui::Checkbox("Log runway matches to Log.txt (debug)", &settings.debug_log_runway_matches);

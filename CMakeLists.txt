@@ -71,8 +71,10 @@ add_library(TrafficRunwayMonitor SHARED
     src/sdk/Weather.cpp
     src/sdk/Log.cpp
     src/sdk/SettingsStore.cpp
+    src/sdk/PluginPath.cpp
     src/ui/MainWindow.cpp
     src/ui/Widgets.cpp
+    src/ui/Theme.cpp
     third_party/LTAPI/LTAPI.cpp
     third_party/ImGui/imgui.cpp
     third_party/ImGui/imgui_draw.cpp
@@ -140,6 +142,16 @@ set_target_properties(TrafficRunwayMonitor PROPERTIES
     PREFIX ""
     OUTPUT_NAME "TrafficRunwayMonitor"
     SUFFIX ".xpl"
+)
+
+# Bundled icon font (ui/MainWindow::InitFontAtlas merges it into the shared
+# atlas). Deployed as Resources/fonts/, a sibling of win_x64/, matching what
+# sdk::PluginPath expects.
+add_custom_command(TARGET TrafficRunwayMonitor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Resources/fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/third_party/FontAwesome/fa-solid-900.ttf"
+        "${CMAKE_BINARY_DIR}/Resources/fonts/trm_icons.ttf"
 )
 
 # --- core/: pure logic, no XPLM/SDK dependency (section 3) ---

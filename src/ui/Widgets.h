@@ -24,6 +24,20 @@
 
 namespace trm::ui {
 
+// Opaque handle returned by BeginCard(), passed back to EndCard(). Callers
+// shouldn't inspect its fields.
+struct CardScope {
+    ImVec2 start_pos;
+    float content_width = 0.0f;
+};
+
+// Opens a themed "card" panel (background + border) around whatever widgets
+// the caller submits before the matching EndCard(). Uses
+// ImDrawList::ChannelsSplit rather than ImGui::BeginChild, since this ImGui
+// version's BeginChild can't auto-size its height to content.
+CardScope BeginCard();
+void EndCard(const CardScope& scope);
+
 // Which of the three confidence tiers a specific runway end currently
 // falls into, for the compass diagram and any other color-coded display:
 // kColorConfirmed if `runwayId` appears in either category's active list,
@@ -75,7 +89,8 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
 // lateral offset instead of overlapping. Each runway end is colored via
 // RunwayStatusColor. `entry` is nullable -- draws an uncolored (all-waiting)
 // diagram if no traffic data is available yet for this airport.
-void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry* entry, float diameter = 150.0f);
+void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry* entry,
+                          float diameter = kRunwayDiagramDiameter);
 
 // History tab widget: a table
 // of confirmed departures/arrivals, most-recent-first, one row per
