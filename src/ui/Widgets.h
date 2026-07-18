@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdio>
+#include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -101,6 +103,26 @@ void RenderRunwayDiagram(const core::Airport* airport, const core::AirportEntry*
 // at all -- only LTAPI-sourced sightings ever populate it). Renders a dim
 // placeholder line instead of an empty table when `events` is empty.
 void RenderEventHistory(const std::vector<core::RunwayEventSummary>& events);
+
+// Flight Plan tab: a 4-char, uppercase ICAO ImGui::InputText. While
+// `editable` is false, mirrors `effectiveIcao` (the live source value) every
+// frame and is read-only -- it isn't a manual entry in that state, so no
+// callback fires. The instant `editable` flips true (detected via
+// `wasEditable`, caller-owned so the transition survives across frames),
+// the buffer is mirrored from `effectiveIcao` exactly once more -- normally
+// blank at that point, since Plugin.cpp has nothing fresh and no override
+// yet -- so the field doesn't keep showing the old locked ICAO as if it
+// were still in effect. Every frame after that (while still editable and
+// not the unlock frame) the buffer is left alone for the user to type in;
+// each edit calls `onChanged` immediately with the buffer's current content
+// (same synchronous-callback pattern as RenderNearbyAirportSelector's
+// caller), no separate "confirm"/blur step. A one-line dim status
+// explaining why the field is locked/editable renders underneath.
+// `buf`/`bufSize` is the caller-owned InputText buffer -- ImGui itself is
+// immediate-mode and doesn't own text-editing state across frames.
+void RenderIcaoOverrideField(const char* label, char* buf, std::size_t bufSize, bool editable, bool& wasEditable,
+                              const std::optional<std::string>& effectiveIcao,
+                              const std::function<void(const std::string&)>& onChanged);
 
 // Nearby-airport selector: a combo box listing every candidate as
 // "ICAO (X.X nm)", nearest-first (candidates already arrive sorted that

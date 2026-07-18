@@ -146,6 +146,12 @@ void MainWindow::buildInterface()
             RenderDashboardTab();
             ImGui::EndTabItem();
         }
+        char flightPlanLabel[32];
+        std::snprintf(flightPlanLabel, sizeof(flightPlanLabel), "%s Flight Plan", kIconFlightPlanTab);
+        if (ImGui::BeginTabItem(flightPlanLabel)) {
+            RenderFlightPlanTab();
+            ImGui::EndTabItem();
+        }
         char historyLabel[32];
         std::snprintf(historyLabel, sizeof(historyLabel), "%s History", kIconHistoryTab);
         if (ImGui::BeginTabItem(historyLabel)) {
@@ -234,6 +240,23 @@ void MainWindow::RenderDashboardTab()
     ImGui::Separator();
     ImGui::Text("Tracked Aircraft: %d", display.tracked_aircraft_count);
     ImGui::Text("Last Update: %s UTC", display.last_update_utc.c_str());
+}
+
+void MainWindow::RenderFlightPlanTab()
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+    ImGui::TextWrapped(
+        "Origin and destination feed the pinned airport on the Dashboard tab. Each field mirrors its "
+        "flight-management system live while fresh; once stale for 5s+, it unlocks so you can pin one manually.");
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+
+    RenderIcaoOverrideField("Origin", origin_override_buf_, sizeof(origin_override_buf_), display.origin_editable,
+                             origin_was_editable_, display.origin_icao, interaction.on_origin_override_changed);
+    ImGui::Spacing();
+    RenderIcaoOverrideField("Destination", destination_override_buf_, sizeof(destination_override_buf_),
+                             display.destination_editable, destination_was_editable_, display.destination_icao,
+                             interaction.on_destination_override_changed);
 }
 
 void MainWindow::RenderSettingsTab()

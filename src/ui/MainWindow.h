@@ -53,6 +53,22 @@ struct DisplayState {
     // History tab: most-recent-first, already windowed/pruned by the
     // orchestration cycle (Plugin.cpp) -- see core::EventLog.
     std::vector<core::RunwayEventSummary> recent_events;
+
+    // Flight Plan tab: whether the origin/destination ICAO field is
+    // currently editable, i.e. its source (ToLiss MCDU or native FMS) has
+    // gone stale (no fresh confirmation in the last few seconds -- see
+    // core::IsFresh, sdk::FmsOriginDestination). Set every cycle in
+    // Plugin.cpp's RunAnalysisCycle from sdk::FmsOriginDestination's
+    // origin_fresh/destination_fresh. Independent per field.
+    bool origin_editable = false;
+    bool destination_editable = false;
+    // The effective ICAO currently in play for each field -- the live
+    // source value while locked, or the user's override once one is set
+    // (Plugin.cpp resolves which; ui:: never computes it, only mirrors it
+    // into the read-only field while locked -- see
+    // ui::RenderIcaoOverrideField).
+    std::optional<std::string> origin_icao;
+    std::optional<std::string> destination_icao;
 };
 
 // User-adjustable settings. The orchestration cycle reads
@@ -97,6 +113,15 @@ struct InteractionState {
     // display.selected_nearby_entry stale until the next ~1Hz
     // RunAnalysisCycle tick.
     std::function<void(const std::string&)> on_nearby_selection_changed;
+
+    // Flight Plan tab: fired the moment the user edits an unlocked
+    // origin/destination field (RenderIcaoOverrideField, Widgets.cpp).
+    // Plugin.cpp stores the typed value as g_originOverride/
+    // g_destinationOverride, which the next RunAnalysisCycle tick applies
+    // in place of the (stale) source value -- see DisplayState::
+    // origin_editable/destination_editable above.
+    std::function<void(const std::string&)> on_origin_override_changed;
+    std::function<void(const std::string&)> on_destination_override_changed;
 };
 
 class MainWindow : public ImgWindow {
@@ -128,8 +153,22 @@ protected:
 
 private:
     void RenderDashboardTab();
+    void RenderFlightPlanTab();
     void RenderSettingsTab();
     void RenderHistoryTab();
+
+    // Caller-owned ImGui::InputText buffers for the Flight Plan tab (see
+    // RenderIcaoOverrideField, Widgets.cpp) -- ImGui is immediate-mode and
+    // doesn't own text-editing state itself, and a plain function-local
+    // static wouldn't distinguish the origin call site from the
+    // destination one, so these live here instead. 4 ICAO chars + NUL.
+    char origin_override_buf_[5] = "";
+    char destination_override_buf_[5] = "";
+    // Previous frame's editable state per field, so RenderIcaoOverrideField
+    // can detect the lock->unlock transition and re-mirror the buffer
+    // exactly once on that edge (see its own comment).
+    bool origin_was_editable_ = false;
+    bool destination_was_editable_ = false;
 };
 
 } // namespace trm::ui

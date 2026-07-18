@@ -13,6 +13,7 @@
 // state across a mid-session source switch would silently misattribute
 // one real aircraft's trend/sighting history to a different one.
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -24,6 +25,7 @@
 #include "XPLMDataAccess.h"
 #include "XPLMDisplay.h"
 #include "XPLMMenus.h"
+#include "XPLMPlanes.h"
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
@@ -81,6 +83,15 @@ std::unique_ptr<sdk::TcasSource> g_tcasSource;
 std::unique_ptr<sdk::LtapiSource> g_ltapiSource;
 sdk::FmsOrigin g_fmsOrigin;
 sdk::Weather g_weather;
+
+// User-typed origin/destination override for whichever field is currently
+// stale (see ui::DisplayState::origin_editable/destination_editable) --
+// session-only, never persisted via sdk::SettingsStore (see
+// notes/features/manual-origin-destination-override.md). Cleared the
+// instant its field's source reports a fresh value again, in
+// RunAnalysisCycle below.
+std::optional<std::string> g_originOverride;
+std::optional<std::string> g_destinationOverride;
 
 // index 0 unused in both, matching TcasSource/LtapiSource's own slot convention.
 std::vector<SlotAnalysisState> g_tcasSlotStates;
@@ -454,7 +465,27 @@ void RunAnalysisCycle()
     const std::vector<core::NearbyAirport> nearest = core::FindNearestAirports(
         g_airportDatabase, lat, lon, static_cast<double>(g_mainWindow->settings.search_radius_nm));
 
-    const sdk::FmsOriginDestination fms = g_fmsOrigin.Resolve();
+    sdk::FmsOriginDestination fms = g_fmsOrigin.Resolve(nowSec);
+
+    // Freshness-gated manual override (see
+    // notes/features/manual-origin-destination-override.md): each field
+    // relocks (clearing any typed override) the instant its source
+    // reports fresh again, silently displacing the manual entry -- no
+    // merge, no confirmation prompt. Origin and destination unlock
+    // independently since the native FMS path can have one entry present
+    // without the other.
+    g_mainWindow->display.origin_editable = !fms.origin_fresh;
+    g_mainWindow->display.destination_editable = !fms.destination_fresh;
+    if (fms.origin_fresh) {
+        g_originOverride.reset();
+    }
+    if (fms.destination_fresh) {
+        g_destinationOverride.reset();
+    }
+    fms.origin_icao = core::ResolveEffectiveIcao(fms.origin_fresh, fms.origin_icao, g_originOverride);
+    fms.destination_icao = core::ResolveEffectiveIcao(fms.destination_fresh, fms.destination_icao, g_destinationOverride);
+    g_mainWindow->display.origin_icao = fms.origin_icao;
+    g_mainWindow->display.destination_icao = fms.destination_icao;
 
     // Extra candidates for runway matching only (not for display): an
     // FMS origin/destination far outside the search radius should still be
@@ -559,6 +590,10 @@ PLUGIN_API int XPluginEnable(void)
     g_mainWindow = std::make_unique<ui::MainWindow>(left, top, left + ui::kDefaultWindowWidth,
                                                       top - ui::kDefaultWindowHeight);
     g_mainWindow->interaction.on_nearby_selection_changed = HandleNearbySelectionChanged;
+    g_mainWindow->interaction.on_origin_override_changed = [](const std::string& icao) { g_originOverride = icao; };
+    g_mainWindow->interaction.on_destination_override_changed = [](const std::string& icao) {
+        g_destinationOverride = icao;
+    };
 
     if (std::optional<sdk::PersistedSettings> persisted = sdk::LoadSettings()) {
         ui::Settings& settings = g_mainWindow->settings;
@@ -638,4 +673,38 @@ PLUGIN_API void XPluginDisable(void)
     g_menuShowItemIndex = -1;
 }
 
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int, void*) {}
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int inMessage, void* inParam)
+{
+    // A manual origin/destination override is scoped to the flight it was
+    // typed for (see notes/features/manual-origin-destination-override.md)
+    // -- the freshness-gated unlock already handles the *source* going
+    // stale when the aircraft changes, but an override the user typed
+    // during the previous flight would otherwise keep getting spliced into
+    // fms.origin_icao/destination_icao indefinitely if the new flight's FMS
+    // route also stays empty (never becomes fresh).
+    //
+    // Two triggers, deliberately both: XPLM_MSG_PLANE_LOADED (aircraft
+    // model itself changes -- the original reported bug's case, param is
+    // the plane index, 0 = the user's own plane) and
+    // XPLM_MSG_AIRPORT_LOADED (the user's plane is repositioned at a new
+    // airport -- fires on Start Flight/situation load/replay start even
+    // when the aircraft type is unchanged, e.g. restarting the same ToLiss
+    // for a new route). PLANE_LOADED alone would miss that second case.
+    // Resetting on either is harmless even when redundant (e.g. both firing
+    // for the same restart) -- the override is session-only UI state, not
+    // anything that needs debouncing.
+    if (inMessage == XPLM_MSG_AIRPORT_LOADED) {
+        g_originOverride.reset();
+        g_destinationOverride.reset();
+        return;
+    }
+    // XPLM_MSG_PLANE_LOADED's param is the plane index bit-cast to a
+    // pointer, not a real pointer -- reinterpret_cast<intptr_t> reads it
+    // back as the integer X-Plane sent, per XPLMPlugin.h's own comment on
+    // this message.
+    if (inMessage == XPLM_MSG_PLANE_LOADED &&
+        reinterpret_cast<intptr_t>(inParam) == XPLM_USER_AIRCRAFT) {
+        g_originOverride.reset();
+        g_destinationOverride.reset();
+    }
+}

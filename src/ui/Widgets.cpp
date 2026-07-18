@@ -504,4 +504,52 @@ bool RenderNearbyAirportSelector(const std::vector<core::NearbyCandidate>& candi
     return changed;
 }
 
+void RenderIcaoOverrideField(const char* label, char* buf, std::size_t bufSize, bool editable, bool& wasEditable,
+                              const std::optional<std::string>& effectiveIcao,
+                              const std::function<void(const std::string&)>& onChanged)
+{
+    const bool justUnlocked = editable && !wasEditable;
+    wasEditable = editable;
+
+    if (!editable || justUnlocked) {
+        // Mirror the live/effective value rather than whatever the buffer
+        // held before: while locked, a relocked field always shows the
+        // fresh source value, never a stale typed one; on the exact frame
+        // it unlocks, it must drop the old locked ICAO too (effectiveIcao
+        // is normally blank right then, since Plugin.cpp has nothing fresh
+        // and no override yet) so the field doesn't keep showing an ICAO
+        // that's no longer actually in effect. Every other editable frame
+        // leaves buf alone so the user's typing isn't stomped.
+        std::snprintf(buf, bufSize, "%s", effectiveIcao.value_or("").c_str());
+    }
+
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
+
+    char widgetId[64];
+    std::snprintf(widgetId, sizeof(widgetId), "##icao_override_%s", label);
+
+    // This vendored ImGui (1.78 WIP, see MainWindow.cpp's own comment on
+    // predating ImGui::SeparatorText) predates ImGui::BeginDisabled/
+    // EndDisabled too -- ImGuiInputTextFlags_ReadOnly plus a dimmed text
+    // color is the equivalent available here.
+    ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsUppercase;
+    if (!editable) {
+        flags |= ImGuiInputTextFlags_ReadOnly;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, editable ? kColorTextPrimary : kColorWaiting);
+    ImGui::PushItemWidth(60.0f);
+    const bool edited = ImGui::InputText(widgetId, buf, bufSize, flags);
+    ImGui::PopItemWidth();
+    ImGui::PopStyleColor();
+
+    if (edited && editable && onChanged) {
+        onChanged(buf);
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
+    ImGui::TextUnformatted(editable ? "Editable - no fresh report in 5s+" : "Locked - source reporting");
+    ImGui::PopStyleColor();
+}
+
 } // namespace trm::ui

@@ -16,6 +16,16 @@ namespace trm::sdk {
 struct FmsOriginDestination {
     std::optional<std::string> origin_icao;
     std::optional<std::string> destination_icao;
+    // True whenever origin_icao/destination_icao was just (re)confirmed by
+    // its source this cycle -- native FMS entries are read live every
+    // call, so presence alone means fresh; the ToLiss MCDU path latches a
+    // value across calls (see core::ToLissFmsState), so freshness there is
+    // core::IsFresh() against core::ToLissFmsState::last_confirmed_at_sec
+    // instead. Drives ui::DisplayState::origin_editable/destination_editable
+    // in Plugin.cpp -- a field is only ever user-editable while its
+    // source's value is stale.
+    bool origin_fresh = false;
+    bool destination_fresh = false;
 };
 
 class FmsOrigin {
@@ -33,7 +43,7 @@ public:
     // real, documented X-Plane SDK quirk confirmed against XPLMNavigation.h's
     // own description, and observed in-sim on a ToLiss Airbus returning the
     // origin instead).
-    FmsOriginDestination Resolve();
+    FmsOriginDestination Resolve(double nowSec);
 
 private:
     void ResolveToLissMcduRefs();
