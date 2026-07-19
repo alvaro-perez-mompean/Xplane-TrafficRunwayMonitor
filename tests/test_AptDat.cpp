@@ -67,6 +67,24 @@ TEST_CASE("ParseAptDat reads a land airport header and runway pair", "[AptDat]")
     REQUIRE(airport.HasReferencePoint());
     CHECK(airport.ref_lat_deg == Approx((33.9000 + 33.9100) / 2.0));
     CHECK(airport.ref_lon_deg == Approx((-118.4000 + -118.3800) / 2.0));
+
+    CHECK(airport.IsSingleRunwayAirport());
+}
+
+TEST_CASE("Airport::IsSingleRunwayAirport is false once a second physical runway is parsed", "[AptDat]")
+{
+    std::istringstream in(
+        "1 13 0 0 KTST Test Airport\n"
+        "100 45.00 1 0 0 0 0 0 09 33.9000 -118.4000 0 0 0 0 0 0 27 33.9100 -118.3800 0 0 0 0 0 0\n"
+        "100 45.00 1 0 0 0 0 0 18 33.9050 -118.4050 0 0 0 0 0 0 36 33.9150 -118.3950 0 0 0 0 0 0\n"
+        "99\n");
+
+    const AirportDatabase db = ParseAptDat(in);
+
+    REQUIRE(db.count("KTST") == 1);
+    const Airport& airport = db.at("KTST");
+    REQUIRE(airport.runways.size() == 4);
+    CHECK_FALSE(airport.IsSingleRunwayAirport());
 }
 
 TEST_CASE("ParseAptDat: row 1 with no name tokens leaves name empty, not a crash", "[AptDat]")

@@ -98,6 +98,13 @@ public:
         std::string other_end_id; // this runway end's physical reciprocal
         FlightPhase phase = FlightPhase::kAirborneEnroute;
         std::string callsign; // empty if this traffic source carries no aircraft identity (sdk::SlotReading)
+
+        // True when the matched airport has only one physical runway (see
+        // core::Airport::IsSingleRunwayAirport) -- there, a confirmed
+        // sighting in one category also activates the same runway_id in
+        // the other category (see RecordSighting), since arrivals and
+        // departures have no other pavement to use.
+        bool single_runway_airport = false;
     };
 
     // Updates `slotState` in place, and may
@@ -139,12 +146,17 @@ private:
     // Records one already-confirmed sighting and invalidates the physical
     // reciprocal runway end in both categories (a runway operates in one
     // direction at a time for all traffic -- a hard physical correction,
-    // not a time-based fade, so it's instant). Returns true the first time
-    // this (icao, category, runwayId) sees this particular slotIndex --
-    // false on every subsequent refresh of the same contributor, which
-    // ProcessSlot uses to only surface a RunwayEvent once per confirmation.
+    // not a time-based fade, so it's instant). When singleRunwayAirport is
+    // set, also activates the same runwayId in the *other* category (see
+    // SlotObservation::single_runway_airport) -- a time-based activation
+    // like any other contributor, so it fades via the normal
+    // PruneStaleSightings window rather than being a permanent override.
+    // Returns true the first time this (icao, category, runwayId) sees this
+    // particular slotIndex -- false on every subsequent refresh of the same
+    // contributor, which ProcessSlot uses to only surface a RunwayEvent
+    // once per confirmation.
     bool RecordSighting(const std::string& icao, SightingCategory category, const std::string& runwayId,
-                        const std::string& otherEndId, int slotIndex, double nowSec);
+                        const std::string& otherEndId, int slotIndex, double nowSec, bool singleRunwayAirport);
     void InvalidateRunwayEnd(const std::string& icao, const std::string& runwayId);
 
     SightingConfig config_;
