@@ -85,8 +85,19 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
     if (!category.active.empty()) {
         for (const auto& runway : category.active) {
             ImGui::PushStyleColor(ImGuiCol_Text, kColorConfirmed);
-            ImGui::Text("%s %s (%d, last %s)", kIconConfirmed, runway.runway_id.c_str(), runway.count,
-                        core::FormatAgo(runway.elapsed_sec).c_str());
+            // Inferred entries (core::RunwaySightingSummary::inferred) have
+            // no sightings of their own in this category -- count is always
+            // 0, correctly reflecting that nothing's actually been observed
+            // here yet. The "single runway" suffix explains why it's still
+            // shown active: the other category's real traffic is on the
+            // only pavement this airport has.
+            if (runway.inferred) {
+                ImGui::Text("%s %s (%d, last %s, single runway)", kIconConfirmed, runway.runway_id.c_str(),
+                            runway.count, core::FormatAgo(runway.elapsed_sec).c_str());
+            } else {
+                ImGui::Text("%s %s (%d, last %s)", kIconConfirmed, runway.runway_id.c_str(), runway.count,
+                            core::FormatAgo(runway.elapsed_sec).c_str());
+            }
             ImGui::PopStyleColor();
             RenderLengthSuffix(runway.length_ft);
         }

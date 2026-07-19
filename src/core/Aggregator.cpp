@@ -4,6 +4,42 @@
 
 namespace trm::core {
 
+namespace {
+
+// Single-runway airports have exactly one physical strip shared by both
+// categories -- if traffic is confirmed active on it in one category,
+// there's no other pavement the other category could be using, even before
+// that other category has any sightings of its own. `sourceActive` is a
+// snapshot taken before either category is mutated, so cross-applying both
+// directions in the same call doesn't feed one direction's inferred entries
+// back into the other. Deliberately only touches `target.active`, never
+// synthesizes a history pick: an inferred *active* entry answers "what
+// runway is in use", which a fabricated history entry has no real-world
+// analogue for.
+void ApplySingleRunwayInference(CategoryResult& target, const std::vector<RunwaySightingSummary>& sourceActive)
+{
+    for (const RunwaySightingSummary& sourceRunway : sourceActive) {
+        const bool alreadyPresent =
+            std::any_of(target.active.begin(), target.active.end(),
+                        [&](const RunwaySightingSummary& r) { return r.runway_id == sourceRunway.runway_id; });
+        if (alreadyPresent) {
+            continue;
+        }
+        RunwaySightingSummary inferred;
+        inferred.runway_id = sourceRunway.runway_id;
+        inferred.count = 0;
+        inferred.elapsed_sec = sourceRunway.elapsed_sec;
+        inferred.length_ft = sourceRunway.length_ft;
+        inferred.inferred = true;
+        target.active.push_back(std::move(inferred));
+    }
+    if (!target.active.empty()) {
+        target.history.reset(); // keep CategoryResult's own "history only when active is empty" invariant
+    }
+}
+
+} // namespace
+
 std::vector<RunwaySightingSummary> RunwaysWithSightings(const RunwaySightings* categorySightings, double windowSec,
                                                           double nowSec, const Airport* airport)
 {
@@ -77,6 +113,13 @@ AirportEntry BuildAirportEntry(const std::string& icao, std::optional<double> di
                                           activeWindowSec, historyWindowSec, nowSec, airport);
     entry.departures = BuildCategoryResult(sightingTracker.FindSightings(icao, SightingCategory::kDeparture),
                                             activeWindowSec, historyWindowSec, nowSec, airport);
+
+    if (airport && airport->IsSingleRunwayAirport()) {
+        const std::vector<RunwaySightingSummary> arrivalsActiveSnapshot = entry.arrivals.active;
+        const std::vector<RunwaySightingSummary> departuresActiveSnapshot = entry.departures.active;
+        ApplySingleRunwayInference(entry.arrivals, departuresActiveSnapshot);
+        ApplySingleRunwayInference(entry.departures, arrivalsActiveSnapshot);
+    }
 
     WindEstimateConfig windConfig;
     windConfig.min_speed_kt = config.wind_estimate_min_speed_kt;

@@ -19,6 +19,15 @@ Airport MakeFourEndedAirport()
     return airport;
 }
 
+Airport MakeSingleRunwayAirport()
+{
+    Airport airport;
+    airport.icao = "KTST";
+    airport.runways.push_back(RunwayEnd{"09", 0.0, 0.0, 90.0, 45.0, "27", 5000.0});
+    airport.runways.push_back(RunwayEnd{"27", 0.0, 0.0, 270.0, 45.0, "09", 5000.0});
+    return airport;
+}
+
 } // namespace
 
 TEST_CASE("RunwaysWithSightings: counts distinct contributors within the window", "[Aggregator]")
@@ -141,6 +150,77 @@ TEST_CASE("BuildAirportEntry: wind estimate only appears when a category has nei
         REQUIRE(entry.arrivals.active.size() == 1);
         CHECK_FALSE(entry.wind_estimate.has_value());
     }
+}
+
+TEST_CASE("BuildAirportEntry: single-runway airport infers the other category active, with a real (zero) count",
+          "[Aggregator]")
+{
+    SightingTracker tracker;
+    Airport airport = MakeSingleRunwayAirport();
+    SlotSightingState depSlot;
+
+    // Confirmed departure on 09 -- no arrival ever recorded.
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09", "27", FlightPhase::kTaxi}, 0.0);
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09", "27", FlightPhase::kInitialClimb}, 30.0);
+
+    AirportEntryInputs inputs;
+    const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 100.0);
+
+    REQUIRE(entry.departures.active.size() == 1);
+    CHECK(entry.departures.active[0].runway_id == "09");
+    CHECK(entry.departures.active[0].count == 1);
+    CHECK_FALSE(entry.departures.active[0].inferred);
+
+    // Arrivals show 09 as active too (single runway, no other pavement),
+    // but the count stays a true 0 -- nothing has actually been observed
+    // landing here.
+    REQUIRE(entry.arrivals.active.size() == 1);
+    CHECK(entry.arrivals.active[0].runway_id == "09");
+    CHECK(entry.arrivals.active[0].count == 0);
+    CHECK(entry.arrivals.active[0].inferred);
+    CHECK_FALSE(entry.arrivals.history.has_value());
+}
+
+TEST_CASE("BuildAirportEntry: single-runway inference does not fire for a multi-runway airport", "[Aggregator]")
+{
+    SightingTracker tracker;
+    Airport airport = MakeFourEndedAirport();
+    SlotSightingState depSlot;
+
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09", "27", FlightPhase::kTaxi}, 0.0);
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09", "27", FlightPhase::kInitialClimb}, 30.0);
+
+    AirportEntryInputs inputs;
+    const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 100.0);
+
+    REQUIRE(entry.departures.active.size() == 1);
+    CHECK(entry.arrivals.active.empty());
+}
+
+TEST_CASE("BuildAirportEntry: single-runway inference is a no-op once the other category has its own real traffic",
+          "[Aggregator]")
+{
+    SightingTracker tracker;
+    Airport airport = MakeSingleRunwayAirport();
+    SlotSightingState depSlot;
+    SlotSightingState arrSlot;
+
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09", "27", FlightPhase::kTaxi}, 0.0);
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09", "27", FlightPhase::kInitialClimb}, 30.0);
+    tracker.ProcessSlot(2, arrSlot, {"KTST", "09", "27", FlightPhase::kFinalApproach}, 0.0);
+    tracker.ProcessSlot(2, arrSlot, {"KTST", "09", "27", FlightPhase::kFinalApproach}, 10.0);
+    tracker.ProcessSlot(2, arrSlot, {"KTST", "09", "27", FlightPhase::kFinalApproach}, 20.0);
+    tracker.ProcessSlot(2, arrSlot, {"KTST", "09", "27", FlightPhase::kLandingRollout}, 30.0);
+
+    AirportEntryInputs inputs;
+    const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 100.0);
+
+    REQUIRE(entry.arrivals.active.size() == 1);
+    CHECK(entry.arrivals.active[0].count == 1);
+    CHECK_FALSE(entry.arrivals.active[0].inferred);
+    REQUIRE(entry.departures.active.size() == 1);
+    CHECK(entry.departures.active[0].count == 1);
+    CHECK_FALSE(entry.departures.active[0].inferred);
 }
 
 TEST_CASE("BuildAirportEntry: name is populated from the airport, nullopt without one", "[Aggregator]")

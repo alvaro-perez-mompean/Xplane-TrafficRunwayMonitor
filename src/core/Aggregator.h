@@ -21,6 +21,15 @@ struct RunwaySightingSummary {
     int count = 0;                    // distinct aircraft within the query window
     double elapsed_sec = 0.0;         // time since the most recent of those
     std::optional<double> length_ft;  // nil if the runway isn't in the apt.dat database
+
+    // True when this entry was never itself observed in this category, but
+    // added because the airport has only one physical runway (see
+    // core::Airport::IsSingleRunwayAirport) and the *other* category
+    // (arrival<->departure) is active on this runway_id -- there's no other
+    // pavement the other category could be using. count is always 0 here:
+    // it deliberately does NOT count as a distinct-aircraft sighting of its
+    // own, only as "this is the runway in use". See BuildAirportEntry.
+    bool inferred = false;
 };
 
 // Unsorted -- callers sort by

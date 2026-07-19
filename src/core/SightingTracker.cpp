@@ -39,7 +39,7 @@ std::optional<RunwayEvent> SightingTracker::ProcessSlot(int slotIndex, SlotSight
         if (ground && ground->icao == icao && ground->runway_id == runwayId
             && (nowSec - ground->time_sec) <= config_.departure_confirm_window_sec) {
             if (RecordSighting(icao, SightingCategory::kDeparture, runwayId, observation.other_end_id, slotIndex,
-                                nowSec, observation.single_runway_airport)) {
+                                nowSec)) {
                 confirmedEvent = RunwayEvent{icao, SightingCategory::kDeparture, runwayId, nowSec, observation.callsign};
             }
         }
@@ -63,7 +63,7 @@ std::optional<RunwayEvent> SightingTracker::ProcessSlot(int slotIndex, SlotSight
         if (pending && pending->icao == icao && pending->runway_id == runwayId
             && (nowSec - pending->time_sec) <= config_.arrival_confirm_window_sec) {
             if (RecordSighting(icao, SightingCategory::kArrival, runwayId, observation.other_end_id, slotIndex,
-                                nowSec, observation.single_runway_airport)) {
+                                nowSec)) {
                 confirmedEvent = RunwayEvent{icao, SightingCategory::kArrival, runwayId, nowSec, observation.callsign};
             }
         }
@@ -123,8 +123,7 @@ RunwaySightings& SightingTracker::CategoryMapFor(const std::string& icao, Sighti
 }
 
 bool SightingTracker::RecordSighting(const std::string& icao, SightingCategory category, const std::string& runwayId,
-                                      const std::string& otherEndId, int slotIndex, double nowSec,
-                                      bool singleRunwayAirport)
+                                      const std::string& otherEndId, int slotIndex, double nowSec)
 {
     ContributorMap& contributors = CategoryMapFor(icao, category)[runwayId];
     const bool isNewContributor = contributors.find(slotIndex) == contributors.end();
@@ -132,11 +131,6 @@ bool SightingTracker::RecordSighting(const std::string& icao, SightingCategory c
 
     if (!otherEndId.empty()) {
         InvalidateRunwayEnd(icao, otherEndId);
-    }
-    if (singleRunwayAirport) {
-        const SightingCategory otherCategory =
-            (category == SightingCategory::kArrival) ? SightingCategory::kDeparture : SightingCategory::kArrival;
-        CategoryMapFor(icao, otherCategory)[runwayId][slotIndex] = nowSec;
     }
     return isNewContributor;
 }

@@ -313,68 +313,6 @@ TEST_CASE("SightingTracker: ProcessSlot carries the confirming observation's cal
     CHECK(event->callsign == "DLH56C");
 }
 
-TEST_CASE("SightingTracker: single-runway airport auto-activates the other category on the same runway_id",
-          "[SightingTracker]")
-{
-    SightingTracker tracker;
-    SlotSightingState slot;
-
-    SightingTracker::SlotObservation ground{"KTST", "09", "27", FlightPhase::kTaxi};
-    ground.single_runway_airport = true;
-    tracker.ProcessSlot(1, slot, ground, 0.0);
-
-    SightingTracker::SlotObservation climb{"KTST", "09", "27", FlightPhase::kInitialClimb};
-    climb.single_runway_airport = true;
-    const auto event = tracker.ProcessSlot(1, slot, climb, 10.0);
-
-    REQUIRE(event.has_value());
-    CHECK(event->category == SightingCategory::kDeparture);
-    // The confirmed departure on 09 also activates 09 for arrivals -- there
-    // is no other pavement a landing at this airport could use.
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kDeparture, "09") == 1);
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kArrival, "09") == 1);
-    // The reciprocal end must still not be activated by this.
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kArrival, "27") == 0);
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kDeparture, "27") == 0);
-}
-
-TEST_CASE("SightingTracker: single-runway auto-activation does not fire for a multi-runway airport",
-          "[SightingTracker]")
-{
-    SightingTracker tracker;
-    SlotSightingState slot;
-
-    // single_runway_airport left at its default (false) -- same sequence as
-    // the "real departure sequence records exactly once" test above.
-    tracker.ProcessSlot(1, slot, {"KTST", "09", "27", FlightPhase::kTaxi}, 0.0);
-    tracker.ProcessSlot(1, slot, {"KTST", "09", "27", FlightPhase::kInitialClimb}, 10.0);
-
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kDeparture, "09") == 1);
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kArrival, "09") == 0);
-}
-
-TEST_CASE("SightingTracker: single-runway auto-activation on a confirmed arrival activates departures too",
-          "[SightingTracker]")
-{
-    SightingTracker tracker;
-    SlotSightingState slot;
-
-    SightingTracker::SlotObservation approach1{"KTST", "27", "09", FlightPhase::kFinalApproach};
-    approach1.single_runway_airport = true;
-    tracker.ProcessSlot(1, slot, approach1, 0.0);
-    tracker.ProcessSlot(1, slot, approach1, 10.0);
-    tracker.ProcessSlot(1, slot, approach1, 20.0);
-
-    SightingTracker::SlotObservation rollout{"KTST", "27", "09", FlightPhase::kLandingRollout};
-    rollout.single_runway_airport = true;
-    const auto event = tracker.ProcessSlot(1, slot, rollout, 30.0);
-
-    REQUIRE(event.has_value());
-    CHECK(event->category == SightingCategory::kArrival);
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kArrival, "27") == 1);
-    CHECK(ContributorCount(tracker, "KTST", SightingCategory::kDeparture, "27") == 1);
-}
-
 TEST_CASE("SightingTracker: PruneStaleSightings drops old contributors and empty runway entries",
           "[SightingTracker]")
 {
