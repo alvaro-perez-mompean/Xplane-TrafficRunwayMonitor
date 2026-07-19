@@ -3,6 +3,17 @@
 An X-Plane 12 plugin that watches nearby AI/multiplayer traffic and reports
 confirmed runway arrivals and departures in an ImGui dashboard.
 
+<p align="center">
+<img src="docs/images/dashboard.jpg" width="150" alt="Dashboard tab"/>
+<img src="docs/images/flightplan1.jpg" width="150" alt="Flight Plan tab"/>
+<img src="docs/images/flightplan2.jpg" width="150" alt="Flight Plan tab continued"/>
+<img src="docs/images/history.jpg" width="150" alt="History tab"/>
+<img src="docs/images/settings.jpg" width="150" alt="Settings tab"/>
+</p>
+<p align="center">
+<sub><b>Dashboard</b> · <b>Flight Plan</b> · <b>History</b> · <b>Settings</b></sub>
+</p>
+
 ## Why
 
 You plan an approach the way you normally would: check the winds, read the
@@ -52,21 +63,20 @@ Open the plugin's window from X-Plane's Plugins menu. It has four tabs:
 - **Flight Plan**: origin/destination ICAO, editable whenever the native FMS
   has no matching entry; a "Fetch from Simbrief" button fills them in from
   your current Simbrief OFP (pilot ID configured once in Settings) and shows
-  its planned route in LIDO-style text (e.g.
+  a simplified OFP excerpt (flight number, aircraft, cost index, alternate,
+  release) alongside the planned route in LIDO-style text (e.g.
   `LEBL/20 SENIA2J SENIA Z596 NEXAS N975 ADUXO ADUXO3D LEMD/32R`). A
   Procedures block recommends a departure SID and arrival STAR/approach that
   actually match the runway in use, parsed straight from X-Plane's own CIFP
   navdata rather than trusting Simbrief's tentative OFP runway guess, with
   each pick freely overridable and the runway(s) currently active for
-  confirmed real traffic highlighted for reference.
+  confirmed real traffic highlighted for reference. Below that, the OFP's
+  planned fuel figures and estimated/max weights (ZFW, fuel, takeoff,
+  landing) round out the summary.
 - **History**: confirmed arrival/departure events (icao/runway/category/callsign).
 - **Settings**: display and search options (altimeter unit, airport card
   layout, search radius), plus debug options including logging runway
   matches to `Log.txt`.
-
-| Dashboard | History | Settings |
-|-----------|---------|----------|
-| ![Dashboard tab](docs/images/dashboard.jpg) | ![History tab](docs/images/history.jpg) | ![Settings tab](docs/images/settings.jpg) |
 
 ## How the matching/confirmation logic works
 
