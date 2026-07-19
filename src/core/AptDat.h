@@ -39,6 +39,13 @@ struct Airport {
     // are the centroid of this airport's runway thresholds, and are only
     // meaningful when there's at least one runway.
     bool HasReferencePoint() const { return !runways.empty(); }
+
+    // True when apt.dat lists exactly one physical runway here (a single
+    // row-100 record, parsed into exactly two reciprocal RunwayEnd entries
+    // -- see ParseAptDat). Used by SightingTracker to auto-activate a
+    // runway for both arrivals and departures where there's no other
+    // pavement it could be.
+    bool IsSingleRunwayAirport() const { return runways.size() == 2; }
 };
 
 using AirportDatabase = std::unordered_map<std::string, Airport>;

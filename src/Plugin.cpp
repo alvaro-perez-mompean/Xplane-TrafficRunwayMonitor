@@ -410,6 +410,7 @@ int CollectAndTrackTraffic(const core::AirportDatabase& db, const std::vector<co
         observation.other_end_id = (matchedRunway != nullptr) ? matchedRunway->other_end_id : std::string();
         observation.phase = phase;
         observation.callsign = reading.callsign;
+        observation.single_runway_airport = (matchedAirport != nullptr) && matchedAirport->IsSingleRunwayAirport();
         if (std::optional<core::RunwayEvent> event =
                 g_sightingTracker.ProcessSlot(i, state.sighting_state, observation, nowSec)) {
             g_eventLog.Record(*event);
