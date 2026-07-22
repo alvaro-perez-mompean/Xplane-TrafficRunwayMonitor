@@ -29,6 +29,10 @@ public:
     // docs guarantee the struct always contains the best data available
     // (the int return is has_station_match, not an availability signal),
     // so this always returns a real reading, never nullopt.
+    //
+    // WindReading::ceiling_ft is relative to `altM`, NOT MSL: apt.dat's flow
+    // ceiling rules are above field elevation, so query at field elevation if
+    // the reading is going to feed those.
     core::WindReading QueryWindAt(double latDeg, double lonDeg, double altM) const;
 
     // Region-array fallback (the sim/weather/region/ 13-layer arrays) --

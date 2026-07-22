@@ -6,8 +6,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/TrafficFlow.h"
+
 // apt.dat parsing (X-Plane's default-scenery airport/runway database).
-// Only reads row 1 (land airport header), row 100 (land runway), and row
+// Reads row 1 (land airport header), row 100 (land runway), the ATC traffic
+// flow block (rows 1000-1004 and 1100/1110, see core/TrafficFlow.h), and row
 // 99 (end of file).
 //
 // Pure logic, no filesystem access: ParseAptDat takes an already-open
@@ -34,6 +37,13 @@ struct Airport {
     std::vector<RunwayEnd> runways;
     double ref_lat_deg = 0.0;
     double ref_lon_deg = 0.0;
+
+    // ATC traffic flows in file order. That order IS the selection algorithm
+    // (first flow whose rules all pass wins), so it must be preserved. Empty
+    // for the ~96% of airports with no authored flows -- 1,597 of 38,888
+    // airports in X-Plane 12's global apt.dat have at least one, though they
+    // include essentially every major field.
+    std::vector<TrafficFlow> flows;
 
     // apt.dat has no explicit single airport reference point; ref_lat/lon
     // are the centroid of this airport's runway thresholds, and are only

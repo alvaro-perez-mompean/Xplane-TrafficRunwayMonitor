@@ -1,8 +1,5 @@
 #include "core/WindEstimate.h"
-#include "core/GeoMath.h"
-
-#include <cmath>
-#include <limits>
+#include "core/ActiveRunway.h"
 
 namespace trm::core {
 
@@ -36,7 +33,7 @@ std::optional<WindInfo> ResolveEffectiveWind(const std::optional<WindReading>& a
     return info;
 }
 
-std::optional<WindEstimateResult> EstimateWindFavoredRunwayEnd(const Airport& airport,
+std::optional<RunwayEstimate> EstimateWindFavoredRunwayEnd(const Airport& airport,
                                                                  const std::optional<WindReading>& airportPositionReading,
                                                                  const std::optional<WindReading>& aircraftPositionReading,
                                                                  const WindEstimateConfig& config)
@@ -46,21 +43,24 @@ std::optional<WindEstimateResult> EstimateWindFavoredRunwayEnd(const Airport& ai
         return std::nullopt;
     }
 
-    const RunwayEnd* best = nullptr;
-    double bestDiff = std::numeric_limits<double>::infinity();
-    for (const RunwayEnd& rwyEnd : airport.runways) {
-        const double diff = std::abs(AngleDiffDeg(wind->direction_true_deg, rwyEnd.heading_deg));
-        if (diff < bestDiff) {
-            best = &rwyEnd;
-            bestDiff = diff;
-        }
-    }
+    // Delegates to the crosswind tier of core::SelectActiveRunway so there is
+    // one runway-picking implementation, not two that can drift apart. This
+    // function's own remaining job is the reading-selection half above, plus
+    // tagging the result with which reading won.
+    // This function has already gated on its own is_calm above, so hand the
+    // crosswind tier the same threshold rather than let its independent (and
+    // higher) default re-classify a 2kt wind as calm and skip straight to the
+    // tie-break.
+    ActiveRunwayConfig activeRunwayConfig;
+    activeRunwayConfig.calm_wind_kt = config.min_speed_kt;
 
-    if (!best) {
+    const std::optional<std::string> runwayId =
+        SelectCrosswindFavoredRunway(airport, wind->direction_true_deg, wind->speed_kt, activeRunwayConfig);
+    if (!runwayId) {
         return std::nullopt;
     }
 
-    return WindEstimateResult{best->id, wind->source};
+    return RunwayEstimate{*runwayId, wind->source};
 }
 
 WindEstimateSource UpgradeToOwnStationIfConfirmed(WindEstimateSource source, bool metarAvailableForThisAirport)

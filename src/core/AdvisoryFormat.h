@@ -37,12 +37,17 @@ struct AdvisoryClause {
     std::vector<std::string> runway_ids;
     std::optional<double> elapsed_sec;
     std::optional<WindEstimateSource> wind_source;
+    // Only meaningful for kWindEstimate: whether that estimate came from
+    // X-Plane's own authored flow rules or from the crosswind heuristic. The
+    // two are worded differently, and two categories only collapse into one
+    // clause when they agree on this too.
+    ActiveRunwaySource rule_source = ActiveRunwaySource::kCrosswind;
 };
 
 // Resolves arrivals and departures independently -- active (ALL runways in
 // CategoryResult::active, joined -- it's a vector, more than one can be
 // active at once) if non-empty, else the single history pick, else the
-// airport's shared wind_estimate, else kNone -- then applies one cross-
+// category's own fallback estimate, else kNone -- then applies one cross-
 // category correction (see below) before collapsing the two into one
 // AdvisoryCategory::kBoth clause when they land on the *exact* same tier
 // and the *exact* same runway set (order-independent). Any partial overlap

@@ -55,8 +55,19 @@ ImU32 RunwayStatusColor(const core::AirportEntry& entry, const std::string& runw
     if (RunwayIsActive(entry.departures, runwayId) || RunwayIsActive(entry.arrivals, runwayId)) {
         return kColorConfirmed;
     }
-    if (entry.wind_estimate.has_value() && entry.wind_estimate->runway_id == runwayId &&
-        (entry.departures.NeedsWindEstimate() || entry.arrivals.NeedsWindEstimate())) {
+    // A flow pick outranks a wind guess, so if either category's estimate names
+    // this runway from a flow, that is the colour it gets.
+    bool matchedWindGuess = false;
+    for (const auto* estimate : {&entry.arrivals_estimate, &entry.departures_estimate}) {
+        if (!estimate->has_value() || (*estimate)->runway_id != runwayId) {
+            continue;
+        }
+        if ((*estimate)->rule_source == core::ActiveRunwaySource::kSimFlow) {
+            return kColorSimFlow;
+        }
+        matchedWindGuess = true;
+    }
+    if (matchedWindGuess) {
         return kColorWindEstimate;
     }
     return kColorWaiting;
@@ -74,7 +85,7 @@ void RenderLengthSuffix(const std::optional<double>& lengthFt)
 }
 
 void RenderCategorySection(const char* title, const core::CategoryResult& category,
-                            const std::optional<core::WindEstimateResult>& windEstimate)
+                            const std::optional<core::RunwayEstimate>& windEstimate)
 {
     ImGui::Text("%s:", title);
     // Real Indent, not leading spaces -- a proportional font's space glyph
@@ -108,9 +119,11 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
                     core::FormatAgo(history.elapsed_sec).c_str());
         ImGui::PopStyleColor();
         RenderLengthSuffix(history.length_ft);
-    } else if (category.NeedsWindEstimate() && windEstimate.has_value()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
-        ImGui::Text("%s %s (wind)", kIconWindEstimate, windEstimate->runway_id.c_str());
+    } else if (category.NeedsEstimate() && windEstimate.has_value()) {
+        const bool fromFlow = windEstimate->rule_source == core::ActiveRunwaySource::kSimFlow;
+        ImGui::PushStyleColor(ImGuiCol_Text, fromFlow ? kColorSimFlow : kColorWindEstimate);
+        ImGui::Text("%s %s (%s)", fromFlow ? kIconSimFlow : kIconWindEstimate, windEstimate->runway_id.c_str(),
+                    fromFlow ? "sim flow" : "wind");
         ImGui::PopStyleColor();
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, kColorWaiting);
@@ -119,8 +132,17 @@ void RenderCategorySection(const char* title, const core::CategoryResult& catego
         if (ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(ImGui::GetFontSize() * 20.0f);
-            ImGui::Text("Wind-based guess only, not confirmed by traffic yet. Source: %s.",
-                        core::WindEstimateSourceLabel(windEstimate->source).c_str());
+            if (fromFlow) {
+                // The flow name is free text from whoever authored the scenery,
+                // so it is truncated rather than trusted to be a sane length.
+                ImGui::Text("X-Plane's own ATC would use this runway under the current conditions, "
+                            "but no traffic has confirmed it yet. Flow: \"%.60s\". Wind source: %s.",
+                            windEstimate->flow_name.c_str(),
+                            core::WindEstimateSourceLabel(windEstimate->source).c_str());
+            } else {
+                ImGui::Text("Wind-based guess only, not confirmed by traffic yet. Source: %s.",
+                            core::WindEstimateSourceLabel(windEstimate->source).c_str());
+            }
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
@@ -224,8 +246,8 @@ void RenderAirportCard(const core::AirportEntry& entry, bool showRawMetar, core:
     if (displayMode == core::AdvisoryDisplayMode::kList || displayMode == core::AdvisoryDisplayMode::kBoth) {
         const std::string departuresTitle = std::string(kIconDeparture) + " Departures";
         const std::string arrivalsTitle = std::string(kIconArrival) + " Arrivals";
-        RenderCategorySection(departuresTitle.c_str(), entry.departures, entry.wind_estimate);
-        RenderCategorySection(arrivalsTitle.c_str(), entry.arrivals, entry.wind_estimate);
+        RenderCategorySection(departuresTitle.c_str(), entry.departures, entry.departures_estimate);
+        RenderCategorySection(arrivalsTitle.c_str(), entry.arrivals, entry.arrivals_estimate);
     }
 
     if (showRawMetar && entry.metar.has_value()) {

@@ -57,7 +57,7 @@ void RenderLengthSuffix(const std::optional<double>& lengthFt);
 // runway) / history (dim gray) / wind estimate (amber, hoverable "(?)")
 // / waiting (dim gray).
 void RenderCategorySection(const char* title, const core::CategoryResult& category,
-                            const std::optional<core::WindEstimateResult>& windEstimate);
+                            const std::optional<core::RunwayEstimate>& windEstimate);
 
 // Word-wrapped render of a precomputed advisory sentence (core::
 // ResolveAdvisoryText, resolved once per orchestration cycle in

@@ -38,6 +38,66 @@ void ApplySingleRunwayInference(CategoryResult& target, const std::vector<Runway
     }
 }
 
+// The fallback cascade for one category: X-Plane's own authored flow rules
+// first, then the crosswind heuristic. Only reached when the category has
+// neither active nor history sightings.
+//
+// Note the calm gate applies to the crosswind tier ONLY. A dead calm still has
+// to consult flows: the leading clause of a multi-rule flow is almost always
+// the calm-wind one, and answering "nothing is favored" there would throw away
+// the most confident answer available (LEPA in a dead calm is 24L/24R, named
+// and authored, not a coin flip).
+std::optional<RunwayEstimate> ResolveCategoryEstimate(const Airport& airport, const AirportEntryInputs& inputs,
+                                                       RunwayOperation operation, const WindEstimateConfig& windConfig)
+{
+    const std::optional<WindInfo> wind =
+        ResolveEffectiveWind(inputs.wind_airport_position_reading, inputs.wind_aircraft_position_reading, windConfig);
+    if (!wind) {
+        return std::nullopt; // no reading at all: flow wind rules can't be evaluated either
+    }
+
+    ActiveRunwayConditions conditions;
+    conditions.wind_from_true_deg = wind->direction_true_deg;
+    conditions.wind_speed_kt = wind->speed_kt;
+    conditions.utc_minutes = inputs.utc_minutes;
+    // Only the airport-position reading carries ceiling/visibility, and it is
+    // also the one ResolveEffectiveWind prefers whenever present, so there is
+    // no case where the other reading's values would be the ones we want. Left
+    // unrestricted otherwise, which cannot wrongly fail a flow.
+    if (inputs.wind_airport_position_reading) {
+        conditions.ceiling_ft = inputs.wind_airport_position_reading->ceiling_ft;
+        conditions.visibility_sm = inputs.wind_airport_position_reading->visibility_sm;
+    }
+    // aircraft_class deliberately left empty: we are predicting which runway
+    // the next unknown aircraft will use, not routing a specific one.
+
+    // Hand the crosswind tier the same calm threshold this function gates on
+    // below. Left at ActiveRunwayConfig's own (higher) default, a wind between
+    // the two -- 1kt to 3kt with the defaults -- would pass the is_calm check
+    // here while the crosswind tier had already given up on direction and
+    // short-circuited to its lowest-id tie-break, so the UI would present an
+    // arbitrary runway as "wind favors" it. EstimateWindFavoredRunwayEnd
+    // already does exactly this for the same reason.
+    ActiveRunwayConfig activeRunwayConfig;
+    activeRunwayConfig.calm_wind_kt = windConfig.min_speed_kt;
+
+    const std::optional<ActiveRunwayResult> selected =
+        SelectActiveRunway(airport, conditions, operation, activeRunwayConfig);
+    if (!selected) {
+        return std::nullopt;
+    }
+    if (selected->source == ActiveRunwaySource::kCrosswind && wind->is_calm) {
+        return std::nullopt;
+    }
+
+    RunwayEstimate estimate;
+    estimate.runway_id = selected->runway_id;
+    estimate.source = wind->source;
+    estimate.rule_source = selected->source;
+    estimate.flow_name = selected->flow_name;
+    return estimate;
+}
+
 } // namespace
 
 std::vector<RunwaySightingSummary> RunwaysWithSightings(const RunwaySightings* categorySightings, double windowSec,
@@ -131,16 +191,22 @@ AirportEntry BuildAirportEntry(const std::string& icao, std::optional<double> di
         entry.altimeter_pa = inputs.wind_airport_position_reading->pressure_pa;
     }
 
-    if (airport && (entry.arrivals.NeedsWindEstimate() || entry.departures.NeedsWindEstimate())) {
-        entry.wind_estimate = EstimateWindFavoredRunwayEnd(*airport, inputs.wind_airport_position_reading,
-                                                             inputs.wind_aircraft_position_reading, windConfig);
+    if (airport) {
+        if (entry.arrivals.NeedsEstimate()) {
+            entry.arrivals_estimate = ResolveCategoryEstimate(*airport, inputs, RunwayOperation::kArrival, windConfig);
+        }
+        if (entry.departures.NeedsEstimate()) {
+            entry.departures_estimate =
+                ResolveCategoryEstimate(*airport, inputs, RunwayOperation::kDeparture, windConfig);
+        }
     }
 
     entry.metar = inputs.metar;
 
-    if (entry.wind_estimate) {
-        entry.wind_estimate->source =
-            UpgradeToOwnStationIfConfirmed(entry.wind_estimate->source, entry.metar.has_value());
+    for (std::optional<RunwayEstimate>* estimate : {&entry.arrivals_estimate, &entry.departures_estimate}) {
+        if (*estimate) {
+            (*estimate)->source = UpgradeToOwnStationIfConfirmed((*estimate)->source, entry.metar.has_value());
+        }
     }
     if (entry.current_wind) {
         entry.current_wind->source =

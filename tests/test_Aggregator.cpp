@@ -84,7 +84,7 @@ TEST_CASE("BuildCategoryResult: non-empty active suppresses history", "[Aggregat
     REQUIRE(result.active.size() == 1);
     CHECK(result.active[0].runway_id == "09");
     CHECK_FALSE(result.history.has_value());
-    CHECK_FALSE(result.NeedsWindEstimate());
+    CHECK_FALSE(result.NeedsEstimate());
 }
 
 TEST_CASE("BuildCategoryResult: history picks by recency, not count, when active is empty", "[Aggregator]")
@@ -104,7 +104,7 @@ TEST_CASE("BuildCategoryResult: history picks by recency, not count, when active
     REQUIRE(result.active.empty());
     REQUIRE(result.history.has_value());
     CHECK(result.history->runway_id == "27"); // recency wins despite lower count
-    CHECK_FALSE(result.NeedsWindEstimate());  // history present -> doesn't need a wind estimate
+    CHECK_FALSE(result.NeedsEstimate());  // history present -> doesn't need a wind estimate
 }
 
 TEST_CASE("BuildCategoryResult: no data at all needs a wind estimate", "[Aggregator]")
@@ -113,7 +113,7 @@ TEST_CASE("BuildCategoryResult: no data at all needs a wind estimate", "[Aggrega
     const auto result = BuildCategoryResult(&empty, 1800.0, 5400.0, 1000.0, nullptr);
     CHECK(result.active.empty());
     CHECK_FALSE(result.history.has_value());
-    CHECK(result.NeedsWindEstimate());
+    CHECK(result.NeedsEstimate());
 }
 
 TEST_CASE("BuildAirportEntry: wind estimate only appears when a category has neither active nor history data",
@@ -128,8 +128,8 @@ TEST_CASE("BuildAirportEntry: wind estimate only appears when a category has nei
         const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
         REQUIRE(entry.arrivals.active.empty());
         REQUIRE_FALSE(entry.arrivals.history.has_value());
-        REQUIRE(entry.wind_estimate.has_value());
-        CHECK(entry.wind_estimate->runway_id == "09");
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->runway_id == "09");
     }
 
     SECTION("real active traffic on both categories -> no wind estimate") {
@@ -148,7 +148,7 @@ TEST_CASE("BuildAirportEntry: wind estimate only appears when a category has nei
         const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
         REQUIRE(entry.departures.active.size() == 1);
         REQUIRE(entry.arrivals.active.size() == 1);
-        CHECK_FALSE(entry.wind_estimate.has_value());
+        CHECK_FALSE(entry.arrivals_estimate.has_value());
     }
 }
 
@@ -267,7 +267,7 @@ TEST_CASE("BuildAirportEntry: current_wind is populated even when both categorie
     const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
     REQUIRE(entry.departures.active.size() == 1);
     REQUIRE(entry.arrivals.active.size() == 1);
-    CHECK_FALSE(entry.wind_estimate.has_value()); // neither category needs a fallback guess
+    CHECK_FALSE(entry.arrivals_estimate.has_value()); // neither category needs a fallback guess
 
     REQUIRE(entry.current_wind.has_value());
     CHECK(entry.current_wind->speed_kt == 12.0);
@@ -341,8 +341,8 @@ TEST_CASE("BuildAirportEntry: upgrades wind_estimate source to own_station when 
 
     const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
 
-    REQUIRE(entry.wind_estimate.has_value());
-    CHECK(entry.wind_estimate->source == WindEstimateSource::kOwnStation);
+    REQUIRE(entry.arrivals_estimate.has_value());
+    CHECK(entry.arrivals_estimate->source == WindEstimateSource::kOwnStation);
 }
 
 TEST_CASE("SelectPinnedAirport: origin/destination switchover at the exact radius boundary", "[Aggregator]")
@@ -412,5 +412,174 @@ TEST_CASE("BuildNearbyCandidates: excludes the pinned airport and caps at maxDis
         const auto candidates = BuildNearbyCandidates(nearest, std::nullopt, 1);
         REQUIRE(candidates.size() == 1);
         CHECK(candidates[0].name == "Airport AAA");
+    }
+}
+
+// --- flow tier (apt.dat ATC flows) --------------------------------------
+
+namespace {
+
+// Two parallels plus an authored flow that lands one and departs the other,
+// the EGLL/LEPA shape. Wind rules mirror LEPA's: a calm clause first, then a
+// directional one.
+Airport MakeFlowAirport()
+{
+    Airport airport;
+    airport.icao = "KTST";
+    airport.runways.push_back(RunwayEnd{"09L", 0.0, 0.0, 90.0, 45.0, "27R", 9000.0});
+    airport.runways.push_back(RunwayEnd{"27R", 0.0, 0.1, 270.0, 45.0, "09L", 9000.0});
+    airport.runways.push_back(RunwayEnd{"09R", -0.01, 0.0, 90.0, 45.0, "27L", 9000.0});
+    airport.runways.push_back(RunwayEnd{"27L", -0.01, 0.1, 270.0, 45.0, "09R", 9000.0});
+
+    TrafficFlow west;
+    west.name = "West Flow";
+    west.wind_rules.push_back(FlowWindRule{0.0, 360.0, 10.0});
+    west.wind_rules.push_back(FlowWindRule{150.0, 330.0, 999.0});
+    west.runway_use_rules.push_back(FlowRunwayUseRule{"27R", true, false, {"jets"}});
+    west.runway_use_rules.push_back(FlowRunwayUseRule{"27L", false, true, {"jets"}});
+    airport.flows.push_back(std::move(west));
+
+    TrafficFlow east; // unconditional fallback, no wind rules
+    east.name = "East Flow";
+    east.runway_use_rules.push_back(FlowRunwayUseRule{"09L", true, false, {"jets"}});
+    east.runway_use_rules.push_back(FlowRunwayUseRule{"09R", false, true, {"jets"}});
+    airport.flows.push_back(std::move(east));
+
+    return airport;
+}
+
+} // namespace
+
+TEST_CASE("BuildAirportEntry: an authored flow gives arrivals and departures different runways",
+          "[Aggregator]")
+{
+    SightingTracker tracker;
+    const Airport airport = MakeFlowAirport();
+
+    AirportEntryInputs inputs;
+    inputs.wind_airport_position_reading = WindReading{15.0, 270.0, true};
+
+    const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+
+    REQUIRE(entry.arrivals_estimate.has_value());
+    REQUIRE(entry.departures_estimate.has_value());
+    CHECK(entry.arrivals_estimate->runway_id == "27R");
+    CHECK(entry.departures_estimate->runway_id == "27L");
+    CHECK(entry.arrivals_estimate->rule_source == ActiveRunwaySource::kSimFlow);
+    CHECK(entry.arrivals_estimate->flow_name == "West Flow");
+}
+
+TEST_CASE("BuildAirportEntry regression: a dead calm still consults flows, and only the crosswind "
+          "tier treats it as favoring nothing",
+          "[Aggregator]")
+{
+    SightingTracker tracker;
+
+    SECTION("airport with flows: the leading calm-wind clause still answers") {
+        const Airport airport = MakeFlowAirport();
+        AirportEntryInputs inputs;
+        inputs.wind_airport_position_reading = WindReading{0.0, 0.0, true};
+
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->runway_id == "27R");
+        CHECK(entry.arrivals_estimate->flow_name == "West Flow");
+    }
+    SECTION("airport without flows: dead calm favors nothing, as before") {
+        const Airport airport = MakeFourEndedAirport();
+        AirportEntryInputs inputs;
+        inputs.wind_airport_position_reading = WindReading{0.0, 0.0, true};
+
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+
+        CHECK_FALSE(entry.arrivals_estimate.has_value());
+        CHECK_FALSE(entry.departures_estimate.has_value());
+    }
+}
+
+TEST_CASE("BuildAirportEntry: ceiling and visibility from the airport-position reading gate a flow",
+          "[Aggregator]")
+{
+    SightingTracker tracker;
+    Airport airport = MakeFlowAirport();
+    airport.flows[0].min_ceiling_ft = 200.0;
+    airport.flows[0].min_visibility_sm = 0.5;
+
+    SECTION("good weather -> the gated flow still wins") {
+        AirportEntryInputs inputs;
+        WindReading reading{15.0, 270.0, true};
+        reading.ceiling_ft = 3000.0;
+        reading.visibility_sm = 10.0;
+        inputs.wind_airport_position_reading = reading;
+
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->flow_name == "West Flow");
+    }
+    SECTION("below minimums -> falls through to the unconditional flow") {
+        AirportEntryInputs inputs;
+        WindReading reading{15.0, 270.0, true};
+        reading.ceiling_ft = 100.0;
+        reading.visibility_sm = 0.25;
+        inputs.wind_airport_position_reading = reading;
+
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->flow_name == "East Flow");
+        CHECK(entry.arrivals_estimate->runway_id == "09L");
+    }
+    SECTION("an unmeasured reading leaves the gated flow eligible") {
+        AirportEntryInputs inputs;
+        inputs.wind_airport_position_reading = WindReading{15.0, 270.0, true}; // ceiling/vis at defaults
+
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->flow_name == "West Flow");
+    }
+}
+
+TEST_CASE("BuildAirportEntry: a category with confirmed traffic gets no estimate, while the other still does",
+          "[Aggregator]")
+{
+    SightingTracker tracker;
+    const Airport airport = MakeFlowAirport();
+
+    // A confirmed departure on 09R only.
+    SlotSightingState depSlot;
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09R", "27L", FlightPhase::kTaxi}, 0.0);
+    tracker.ProcessSlot(1, depSlot, {"KTST", "09R", "27L", FlightPhase::kInitialClimb}, 30.0);
+
+    AirportEntryInputs inputs;
+    inputs.wind_airport_position_reading = WindReading{15.0, 270.0, true};
+
+    const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+
+    REQUIRE(entry.departures.active.size() == 1);
+    CHECK_FALSE(entry.departures_estimate.has_value()); // real traffic outranks the flow rule
+    REQUIRE(entry.arrivals_estimate.has_value());
+    CHECK(entry.arrivals_estimate->runway_id == "27R");
+}
+
+TEST_CASE("BuildAirportEntry: a flow time rule is evaluated against the supplied zulu minutes", "[Aggregator]")
+{
+    SightingTracker tracker;
+    Airport airport = MakeFlowAirport();
+    airport.flows[0].time_rule = FlowTimeRule{7 * 60, 23 * 60}; // day only
+
+    AirportEntryInputs inputs;
+    inputs.wind_airport_position_reading = WindReading{15.0, 270.0, true};
+
+    SECTION("inside the window -> day flow") {
+        inputs.utc_minutes = 12 * 60;
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->flow_name == "West Flow");
+    }
+    SECTION("outside it -> falls through") {
+        inputs.utc_minutes = 2 * 60;
+        const AirportEntry entry = BuildAirportEntry("KTST", std::nullopt, &airport, tracker, inputs, 1000.0);
+        REQUIRE(entry.arrivals_estimate.has_value());
+        CHECK(entry.arrivals_estimate->flow_name == "East Flow");
     }
 }
