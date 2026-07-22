@@ -18,9 +18,11 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "XPLMDataAccess.h"
@@ -191,6 +193,7 @@ std::unique_ptr<ui::MainWindow> g_mainWindow;
 
 XPLMDataRef g_latitudeRef = nullptr;
 XPLMDataRef g_longitudeRef = nullptr;
+XPLMDataRef g_zuluTimeRef = nullptr;
 
 // Plugins-menu entry (created in XPluginEnable, torn down in XPluginDisable
 // so a disable/re-enable cycle -- e.g. via Plugin Admin -- doesn't pile up
@@ -264,12 +267,31 @@ std::string FormatUtcNow()
     return buf;
 }
 
+// Sim zulu time as minutes since 0000Z, for apt.dat flow time rules (row
+// 1004). Wrapped rather than clamped: the dataref is seconds since midnight
+// zulu and should already be in range, but a rule window comparison wants a
+// value that definitely is. 0 if the dataref isn't registered, which only
+// mis-evaluates the 685 flows that carry a time rule at all.
+int ReadZuluMinutes()
+{
+    if (g_zuluTimeRef == nullptr) {
+        return 0;
+    }
+    const float seconds = XPLMGetDataf(g_zuluTimeRef);
+    if (!(seconds >= 0.0f)) { // also catches NaN
+        return 0;
+    }
+    return static_cast<int>(seconds / 60.0f) % 1440;
+}
+
 // Already-resolved wind/METAR inputs for one airport (Aggregator can't
 // fetch these itself). Airport-position wind is queried directly
 // when the airport has a reference point (always succeeds per
 // sdk::Weather::QueryWindAt's own contract), else the region-array
 // fallback is consulted instead, matching core::EstimateWindFavoredRunwayEnd's
-// documented resolution order.
+// documented resolution order. The airport-position query deliberately passes
+// field elevation as its altitude: sdk::Weather reports ceiling relative to
+// that, and apt.dat's flow ceiling rules are above field elevation.
 core::AirportEntryInputs ResolveAirportInputs(const std::string& icao, const core::Airport* airport)
 {
     core::AirportEntryInputs inputs;
@@ -281,6 +303,7 @@ core::AirportEntryInputs ResolveAirportInputs(const std::string& icao, const cor
         inputs.wind_aircraft_position_reading = g_weather.ReadRegionWindFallback();
     }
     inputs.metar = g_weather.GetMetarFor(icao);
+    inputs.utc_minutes = ReadZuluMinutes();
     return inputs;
 }
 
@@ -434,6 +457,101 @@ int CollectAndTrackTraffic(const core::AirportDatabase& db, const std::vector<co
     return trackedCount;
 }
 
+// Last RWYFLOW line emitted per "ICAO/category", so the trace only records
+// CHANGES. Unlike RWYDBG (one line per matched aircraft per cycle, inherently
+// bursty but self-limiting), an unconditional flow line would repeat the same
+// answer at 1Hz forever for both displayed airports -- thousands of identical
+// lines that bury the one transition worth reading.
+std::map<std::string, std::string> g_lastActiveRunwayLogByKey;
+
+// One category's resolved fallback, as a log fragment. "confirmed" means the
+// category has real traffic so no estimate was computed at all, which is
+// deliberate and distinct from "none" (an estimate was attempted and came up
+// empty, e.g. dead calm at an airport with no flows).
+std::string DescribeCategoryEstimate(const core::CategoryResult& category,
+                                      const std::optional<core::RunwayEstimate>& estimate)
+{
+    if (!category.NeedsEstimate()) {
+        return "rwy=- tier=confirmed flow=-";
+    }
+    if (!estimate) {
+        return "rwy=- tier=none flow=-";
+    }
+    const bool fromFlow = estimate->rule_source == core::ActiveRunwaySource::kSimFlow;
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "rwy=%s tier=%s flow=\"%.50s\"", estimate->runway_id.c_str(),
+                  fromFlow ? "flow" : "wind", fromFlow ? estimate->flow_name.c_str() : "-");
+    return buf;
+}
+
+// Diagnostic logging for the active-runway fallback cascade, gated behind the
+// same Settings checkbox as RWYDBG/RWYCONFIRM. Grep for "RWYFLOW".
+//
+// This is the one path RWYDBG cannot cover: RWYDBG traces runway matches from
+// tracked aircraft, and this cascade fires precisely when a category has no
+// such traffic. Without it, a flow pick disagreeing with the real airport is
+// undiagnosable from Log.txt -- hence logging the INPUTS (wind, ceiling,
+// visibility, zulu minutes, flow count) alongside the answer, since a wrong
+// answer here is nearly always a wrong input rather than wrong rule
+// evaluation.
+void LogActiveRunwaySelection(const core::AirportEntry& entry, const core::Airport* airport,
+                               const core::AirportEntryInputs& inputs)
+{
+    if (g_mainWindow == nullptr || !g_mainWindow->settings.debug_log_runway_matches) {
+        // Dropped rather than kept, so re-enabling the checkbox logs a fresh
+        // baseline instead of staying silent until the next change.
+        g_lastActiveRunwayLogByKey.clear();
+        return;
+    }
+
+    // Ceiling/visibility come from the airport-position reading only, matching
+    // what core::BuildAirportEntry actually feeds the flow rules.
+    const double ceilingFt = inputs.wind_airport_position_reading ? inputs.wind_airport_position_reading->ceiling_ft
+                                                                   : core::kUnrestrictedCeilingFt;
+    const double visibilitySm = inputs.wind_airport_position_reading
+                                    ? inputs.wind_airport_position_reading->visibility_sm
+                                    : core::kUnrestrictedVisibilitySm;
+
+    char conditions[160];
+    if (entry.current_wind.has_value()) {
+        std::snprintf(conditions, sizeof(conditions), "flows=%d wind=%03.0f/%.0f ceil=%.0f vis=%.1f zulu=%04d",
+                      airport != nullptr ? static_cast<int>(airport->flows.size()) : 0,
+                      entry.current_wind->direction_true_deg, entry.current_wind->speed_kt, ceilingFt, visibilitySm,
+                      (inputs.utc_minutes / 60) * 100 + inputs.utc_minutes % 60);
+    } else {
+        std::snprintf(conditions, sizeof(conditions), "flows=%d wind=none ceil=%.0f vis=%.1f zulu=%04d",
+                      airport != nullptr ? static_cast<int>(airport->flows.size()) : 0, ceilingFt, visibilitySm,
+                      (inputs.utc_minutes / 60) * 100 + inputs.utc_minutes % 60);
+    }
+
+    const std::pair<const char*, std::string> categories[] = {
+        {"arrival", DescribeCategoryEstimate(entry.arrivals, entry.arrivals_estimate)},
+        {"departure", DescribeCategoryEstimate(entry.departures, entry.departures_estimate)},
+    };
+
+    for (const auto& [categoryName, description] : categories) {
+        const std::string key = entry.icao + "/" + categoryName;
+        // Deduplicated on the ANSWER only, deliberately not on `conditions`.
+        // Wind is resampled every cycle and printed at 1-degree/1-knot
+        // resolution, so any real gust or shear rounds differently between
+        // cycles -- including it here would defeat the dedupe entirely and
+        // emit at 1Hz for both displayed airports, which is exactly the volume
+        // this exists to avoid. The conditions are still printed in full on
+        // every line that does get emitted, which is what makes a change
+        // diagnosable.
+        const auto it = g_lastActiveRunwayLogByKey.find(key);
+        if (it != g_lastActiveRunwayLogByKey.end() && it->second == description) {
+            continue; // same answer as the last cycle that logged it
+        }
+        g_lastActiveRunwayLogByKey[key] = description;
+
+        char buf[320];
+        std::snprintf(buf, sizeof(buf), "RWYFLOW icao=%s cat=%s %s %s", entry.icao.c_str(), categoryName,
+                      description.c_str(), conditions);
+        sdk::Log(sdk::LogLevel::Info, buf);
+    }
+}
+
 // core::BuildPinnedEntry itself isn't used here: it needs already-resolved
 // wind/METAR inputs for whichever airport ends up selected, so the
 // selection (core::SelectPinnedAirport) has to run first anyway -- calling
@@ -467,6 +585,7 @@ void UpdatePinnedEntry(const core::AirportDatabase& db, double lat, double lon,
         *g_mainWindow->display.pinned_entry, g_mainWindow->settings.pressure_unit, airport);
     g_mainWindow->display.pinned_kind = selection->kind;
     g_mainWindow->display.pinned_airport = airport;
+    LogActiveRunwaySelection(*g_mainWindow->display.pinned_entry, airport, inputs);
 }
 
 // Resolves and stores the full display entry for whichever airport is
@@ -485,6 +604,7 @@ void ResolveSelectedNearbyEntry(const core::AirportDatabase& db, const std::stri
     g_mainWindow->display.selected_nearby_advisory_text = core::ResolveAdvisoryText(
         *g_mainWindow->display.selected_nearby_entry, g_mainWindow->settings.pressure_unit, airport);
     g_mainWindow->display.selected_nearby_airport = airport;
+    LogActiveRunwaySelection(*g_mainWindow->display.selected_nearby_entry, airport, inputs);
 }
 
 // Keeps the current selection if it's still a valid candidate, else falls
@@ -617,7 +737,7 @@ void ResolveProcedureSelections(const sdk::FmsOriginDestination& fms, double now
     // Which runway(s) are actually active right now (confirmed-traffic tier
     // only, core::CategoryResult::active) -- so a Simbrief-planned runway
     // that's no longer in use stands out in the selectors above rather than
-    // silently being wrong. history/wind_estimate are irrelevant here and
+    // silently being wrong. history/fallback estimates are irrelevant here and
     // discarded.
     const double historyWindowSec = g_aggregatorConfig.active_window_sec * g_aggregatorConfig.history_window_multiplier;
     display.active_departure_runways.clear();
@@ -937,6 +1057,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc)
 
     g_latitudeRef = XPLMFindDataRef("sim/flightmodel/position/latitude");
     g_longitudeRef = XPLMFindDataRef("sim/flightmodel/position/longitude");
+    g_zuluTimeRef = XPLMFindDataRef("sim/time/zulu_time_sec");
 
     return 1;
 }

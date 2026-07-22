@@ -178,6 +178,7 @@ add_library(trm_core STATIC
     src/core/TrendFilter.cpp
     src/core/PhaseClassifier.cpp
     src/core/SightingTracker.cpp
+    src/core/ActiveRunway.cpp
     src/core/WindEstimate.cpp
     src/core/Aggregator.cpp
     src/core/FmsOrigin.cpp

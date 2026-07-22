@@ -19,6 +19,7 @@ add_executable(trm_core_tests
     test_TrendFilter.cpp
     test_PhaseClassifier.cpp
     test_SightingTracker.cpp
+    test_ActiveRunway.cpp
     test_WindEstimate.cpp
     test_Aggregator.cpp
     test_FmsOrigin.cpp

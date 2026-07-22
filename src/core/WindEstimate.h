@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 
+#include "core/ActiveRunway.h"
 #include "core/AptDat.h"
 
 // Wind-favored-runway-end estimate: fallback runway guess when no
@@ -39,18 +40,37 @@ struct WindReading {
     // XPLMGetWeatherAtLocation twice for the same position. 0.0 for the
     // region-array wind fallback, which carries no pressure data.
     double pressure_pa = 0.0;
+    // Ceiling and visibility from the same sample, for the same reason. Only
+    // the flow tier (core::SelectActiveRunway) consumes these, to evaluate
+    // apt.dat rows 1002/1003. XPLMWeatherInfo_t reports visibility directly but
+    // has no ceiling field, so sdk::Weather derives one from its cloud layers.
+    // Both default to unrestricted, which is also what the region-array
+    // fallback leaves them at, since it carries neither.
+    double ceiling_ft = kUnrestrictedCeilingFt;
+    double visibility_sm = kUnrestrictedVisibilitySm;
 };
 
 struct WindEstimateConfig {
     double min_speed_kt = 1.0; // a dead calm favors nothing
 };
 
-struct WindEstimateResult {
+// A fallback runway pick for one category, used when no traffic-confirmed
+// runway exists yet. Named for wind because that was once the only way to
+// produce one; `rule_source` now says whether it came from X-Plane's own
+// authored flow rules instead, which is a materially stronger claim.
+struct RunwayEstimate {
     std::string runway_id;
+    // Provenance of the WIND READING behind it, regardless of tier -- a flow
+    // pick still depends on wind to select the flow.
     WindEstimateSource source = WindEstimateSource::kRegional;
+    // Which tier decided the runway.
+    ActiveRunwaySource rule_source = ActiveRunwaySource::kCrosswind;
+    // Matched row-1000 name, empty unless rule_source is kSimFlow. Free text
+    // from the scenery author: display-only, and bound its length when shown.
+    std::string flow_name;
 };
 
-// The wind itself, independent of any runway -- unlike WindEstimateResult
+// The wind itself, independent of any runway -- unlike RunwayEstimate
 // (which only exists as a fallback when no traffic-confirmed runway data
 // exists yet), this is meant to be displayed unconditionally, any time a
 // reading is available at all.
@@ -80,7 +100,7 @@ std::optional<WindInfo> ResolveEffectiveWind(const std::optional<WindReading>& a
 // Note the (perhaps non-obvious) consequence that a real but *dead-calm*
 // airport-position reading is trusted as final and does NOT fall through
 // to the aircraft-position reading, even if the latter would show real wind.
-std::optional<WindEstimateResult> EstimateWindFavoredRunwayEnd(const Airport& airport,
+std::optional<RunwayEstimate> EstimateWindFavoredRunwayEnd(const Airport& airport,
                                                                  const std::optional<WindReading>& airportPositionReading,
                                                                  const std::optional<WindReading>& aircraftPositionReading,
                                                                  const WindEstimateConfig& config = {});

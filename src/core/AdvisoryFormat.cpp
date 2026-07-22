@@ -21,7 +21,7 @@ std::vector<std::string> ActiveRunwayIds(const std::vector<RunwaySightingSummary
 }
 
 AdvisoryClause ResolveCategoryClause(AdvisoryCategory category, const CategoryResult& result,
-                                      const std::optional<WindEstimateResult>& windEstimate)
+                                      const std::optional<RunwayEstimate>& windEstimate)
 {
     AdvisoryClause clause;
     clause.category = category;
@@ -37,10 +37,11 @@ AdvisoryClause ResolveCategoryClause(AdvisoryCategory category, const CategoryRe
         clause.elapsed_sec = result.history->elapsed_sec;
         return clause;
     }
-    if (result.NeedsWindEstimate() && windEstimate.has_value()) {
+    if (result.NeedsEstimate() && windEstimate.has_value()) {
         clause.tier = AdvisoryTier::kWindEstimate;
         clause.runway_ids = {windEstimate->runway_id};
         clause.wind_source = windEstimate->source;
+        clause.rule_source = windEstimate->rule_source;
         return clause;
     }
     clause.tier = AdvisoryTier::kNone;
@@ -66,6 +67,15 @@ void ApplyWindEstimateBias(AdvisoryClause& windClause, const AdvisoryClause& oth
     const std::optional<std::string> otherEndId = FindOtherRunwayEndId(*airport, otherClause.runway_ids[0]);
     if (otherEndId.has_value() && windClause.runway_ids.size() == 1 && windClause.runway_ids[0] == *otherEndId) {
         windClause.runway_ids = otherClause.runway_ids;
+        // The runway is no longer the one the source rule actually named, so a
+        // kSimFlow clause must stop claiming X-Plane's authored rules chose it
+        // -- they named the opposite end. Downgrading rather than skipping the
+        // bias keeps the contradiction fix (this category reading as the
+        // physical opposite threshold of the runway the other category has
+        // confirmed traffic on) and only drops the attribution, leaving a
+        // rewritten flow pick worded exactly like a rewritten wind pick has
+        // always been.
+        windClause.rule_source = ActiveRunwaySource::kCrosswind;
     }
 }
 
@@ -207,8 +217,13 @@ std::string FormatClause(const AdvisoryClause& clause, const RunwayIdFormatter& 
             return text;
         }
         case AdvisoryTier::kWindEstimate: {
-            std::string text = "wind favors " + RunwayNoun(ids) + " " + JoinRunwayIds(ids) + " for " +
-                                CategoryNoun(clause.category);
+            // A flow pick is X-Plane's own authored answer, not our inference
+            // from wind, so it says so rather than claiming the wind favors it.
+            std::string text = clause.rule_source == ActiveRunwaySource::kSimFlow
+                                    ? "sim ATC flow favors " + RunwayNoun(ids) + " " + JoinRunwayIds(ids) + " for " +
+                                          CategoryNoun(clause.category)
+                                    : "wind favors " + RunwayNoun(ids) + " " + JoinRunwayIds(ids) + " for " +
+                                          CategoryNoun(clause.category);
             if (clause.wind_source.has_value()) {
                 if (const auto caveat = AdvisoryWindSourceCaveat(*clause.wind_source)) {
                     text += " (" + *caveat + ")";
@@ -291,9 +306,10 @@ std::string FormatAdvisory(const std::vector<AdvisoryClause>& clauses, const std
 
 std::vector<AdvisoryClause> BuildAdvisoryClauses(const AirportEntry& entry, const Airport* airport)
 {
-    AdvisoryClause arrival = ResolveCategoryClause(AdvisoryCategory::kArrival, entry.arrivals, entry.wind_estimate);
+    AdvisoryClause arrival =
+        ResolveCategoryClause(AdvisoryCategory::kArrival, entry.arrivals, entry.arrivals_estimate);
     AdvisoryClause departure =
-        ResolveCategoryClause(AdvisoryCategory::kDeparture, entry.departures, entry.wind_estimate);
+        ResolveCategoryClause(AdvisoryCategory::kDeparture, entry.departures, entry.departures_estimate);
 
     if (arrival.tier == AdvisoryTier::kWindEstimate) {
         ApplyWindEstimateBias(arrival, departure, airport);
@@ -303,6 +319,9 @@ std::vector<AdvisoryClause> BuildAdvisoryClauses(const AirportEntry& entry, cons
     }
 
     const bool sameTier = arrival.tier == departure.tier;
+    // Same runway from a flow rule and from a wind guess are not the same
+    // claim, so they stay two clauses rather than collapsing into one.
+    const bool sameRuleSource = arrival.rule_source == departure.rule_source;
     const bool sameWindSource = arrival.wind_source == departure.wind_source;
     const bool sameRunways = SameRunwaySet(arrival.runway_ids, departure.runway_ids);
     // kHistory needs an extra check: same tier and same runway set aren't
@@ -311,7 +330,7 @@ std::vector<AdvisoryClause> BuildAdvisoryClauses(const AirportEntry& entry, cons
     // (see HistoryTimesCloseEnoughToCollapse above).
     const bool historyTimesAgree =
         arrival.tier != AdvisoryTier::kHistory || HistoryTimesCloseEnoughToCollapse(arrival, departure);
-    if (sameTier && sameWindSource && sameRunways && historyTimesAgree) {
+    if (sameTier && sameRuleSource && sameWindSource && sameRunways && historyTimesAgree) {
         AdvisoryClause combined = arrival;
         combined.category = AdvisoryCategory::kBoth;
         if (combined.tier == AdvisoryTier::kHistory) {

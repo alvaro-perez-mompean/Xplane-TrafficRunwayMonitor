@@ -45,7 +45,7 @@ struct CategoryResult {
     std::vector<RunwaySightingSummary> active;   // sorted by count descending
     std::optional<RunwaySightingSummary> history; // only set when active is empty
 
-    bool NeedsWindEstimate() const { return active.empty() && !history.has_value(); }
+    bool NeedsEstimate() const { return active.empty() && !history.has_value(); }
 };
 
 // Active/history cascade: runways active within activeWindowSec (ranked by distinct-aircraft
@@ -60,12 +60,19 @@ struct AirportEntry {
     std::optional<double> distance_nm;
     CategoryResult arrivals;
     CategoryResult departures;
-    // Shared fallback for whichever category(ies) needed it: exactly one
-    // wind estimate is computed per airport (not one per category),
-    // triggered if EITHER category has neither active nor history data.
-    std::optional<WindEstimateResult> wind_estimate;
+    // Fallback pick per category, set only for a category that has neither
+    // active nor history data (CategoryResult::NeedsEstimate).
+    //
+    // Per category rather than one shared estimate, because the better of the
+    // two tiers producing them genuinely distinguishes the two: X-Plane's own
+    // flow rules put arrivals and departures on different runways at most
+    // parallel-runway airports (EGLL lands 27R and departs 27L in a westerly).
+    // The wind tier still answers both alike, so these can be equal -- that is
+    // a property of that tier, not of this field.
+    std::optional<RunwayEstimate> arrivals_estimate;
+    std::optional<RunwayEstimate> departures_estimate;
     // The current wind itself, unconditionally populated whenever a
-    // reading is available -- unlike wind_estimate above, not gated behind
+    // reading is available -- unlike the estimates above, not gated behind
     // any category needing it. This is what the dashboard displays as
     // "current wind" independent of runway-favoring logic.
     std::optional<WindInfo> current_wind;
@@ -84,6 +91,11 @@ struct AirportEntryInputs {
     std::optional<WindReading> wind_airport_position_reading;
     std::optional<WindReading> wind_aircraft_position_reading;
     std::optional<std::string> metar;
+    // Minutes since 0000Z, for apt.dat flow time rules (row 1004). From
+    // sim/time/zulu_time_sec, read in Plugin.cpp -- this module makes no XPLM
+    // calls. Only 685 flows carry a time rule, so a wrong value here is
+    // harmless nearly everywhere, but LEBL's day/night flows do depend on it.
+    int utc_minutes = 0;
 };
 
 struct AggregatorConfig {

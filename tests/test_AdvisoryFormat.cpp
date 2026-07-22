@@ -82,7 +82,8 @@ TEST_CASE("BuildAdvisoryClauses: falls back to wind estimate only when active an
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("31")};
     // departures: no active, no history -> needs wind estimate
-    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"04", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry);
     REQUIRE(clauses.size() == 2);
@@ -103,7 +104,8 @@ TEST_CASE("BuildAdvisoryClauses: wind estimate is biased to the other category's
     // departures: no active, no history -> needs wind estimate, which
     // independently favors "31" -- the physical opposite end of the
     // runway arrivals are already confirmed on.
-    entry.wind_estimate = WindEstimateResult{"31", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"31", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry, &airport);
     REQUIRE(clauses.size() == 2);
@@ -123,7 +125,8 @@ TEST_CASE("BuildAdvisoryClauses: wind estimate is biased to the other category's
     // departures: no active, no history -> needs wind estimate, which
     // independently favors "31" -- the physical opposite end of the
     // runway arrivals were recently (not currently) confirmed on.
-    entry.wind_estimate = WindEstimateResult{"31", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"31", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry, &airport);
     REQUIRE(clauses.size() == 2);
@@ -140,7 +143,8 @@ TEST_CASE("BuildAdvisoryClauses: wind estimate bias does NOT cross between paral
     // departures' independent wind estimate favors 31R -- that's 13R's
     // physical partner, a different strip from 13L/31L, not a
     // contradiction of the arrival runway.
-    entry.wind_estimate = WindEstimateResult{"31R", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"31R", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry, &airport);
     REQUIRE(clauses.size() == 2);
@@ -154,7 +158,8 @@ TEST_CASE("BuildAdvisoryClauses: wind estimate bias is skipped without an airpor
 {
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("13")};
-    entry.wind_estimate = WindEstimateResult{"31", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"31", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry, nullptr);
     REQUIRE(clauses.size() == 2);
@@ -168,7 +173,8 @@ TEST_CASE("BuildAdvisoryClauses: wind estimate bias is skipped when the other ca
     const Airport airport = MakeSingleRunwayAirport();
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("13"), MakeActive("31")};
-    entry.wind_estimate = WindEstimateResult{"31", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"31", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry, &airport);
     REQUIRE(clauses.size() == 2);
@@ -181,7 +187,8 @@ TEST_CASE("FormatAdvisoryPlainText: biased wind-estimate clause reads consistent
     const Airport airport = MakeSingleRunwayAirport();
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("13")};
-    entry.wind_estimate = WindEstimateResult{"31", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"31", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
 
     const auto clauses = BuildAdvisoryClauses(entry, &airport);
     const std::string text = FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa);
@@ -362,12 +369,14 @@ TEST_CASE("FormatAdvisoryPlainText: wind-estimate clause caveats uncertain sourc
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("31")};
 
-    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kRegional};
+    entry.arrivals_estimate = RunwayEstimate{"04", WindEstimateSource::kRegional};
+    entry.departures_estimate = entry.arrivals_estimate;
     auto clauses = BuildAdvisoryClauses(entry);
     CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
           "Currently landing runway 31, wind favors runway 04 for departures (regional estimate).");
 
-    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kAircraftPosition};
+    entry.arrivals_estimate = RunwayEstimate{"04", WindEstimateSource::kAircraftPosition};
+    entry.departures_estimate = entry.arrivals_estimate;
     clauses = BuildAdvisoryClauses(entry);
     CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
           "Currently landing runway 31, wind favors runway 04 for departures (aircraft-based estimate).");
@@ -379,12 +388,14 @@ TEST_CASE("FormatAdvisoryPlainText: wind-estimate clause says nothing extra for 
     AirportEntry entry;
     entry.arrivals.active = {MakeActive("31")};
 
-    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kOwnStation};
+    entry.arrivals_estimate = RunwayEstimate{"04", WindEstimateSource::kOwnStation};
+    entry.departures_estimate = entry.arrivals_estimate;
     auto clauses = BuildAdvisoryClauses(entry);
     CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
           "Currently landing runway 31, wind favors runway 04 for departures.");
 
-    entry.wind_estimate = WindEstimateResult{"04", WindEstimateSource::kStation};
+    entry.arrivals_estimate = RunwayEstimate{"04", WindEstimateSource::kStation};
+    entry.departures_estimate = entry.arrivals_estimate;
     clauses = BuildAdvisoryClauses(entry);
     CHECK(FormatAdvisoryPlainText(clauses, std::nullopt, std::nullopt, PressureUnit::kHpa) ==
           "Currently landing runway 31, wind favors runway 04 for departures.");

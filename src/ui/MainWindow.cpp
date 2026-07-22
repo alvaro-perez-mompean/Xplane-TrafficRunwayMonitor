@@ -184,6 +184,10 @@ void MainWindow::RenderDashboardTab()
     ImGui::Text("%s confirmed", kIconConfirmed);
     ImGui::PopStyleColor();
     ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, kColorSimFlow);
+    ImGui::Text("%s sim flow", kIconSimFlow);
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Text, kColorWindEstimate);
     ImGui::Text("%s wind guess (see ?)", kIconWindEstimate);
     ImGui::PopStyleColor();

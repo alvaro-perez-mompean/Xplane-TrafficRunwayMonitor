@@ -11,6 +11,13 @@ namespace trm::sdk {
 namespace {
 constexpr double kMpsToKt = 1.9438444924406;
 constexpr int kWindRegionLayerCount = 13; // confirmed array size in X-Plane 12
+constexpr double kMetersToSm = 1.0 / 1609.344;
+constexpr double kMetersToFt = 3.28084;
+// XPLMWeatherInfo_t has no ceiling field, only cloud layers with a 0..1
+// coverage ratio. "Broken" (5/8 okta) is the traditional METAR threshold for a
+// reportable ceiling -- scattered and few don't count. Not aeronautically
+// researched beyond that convention.
+constexpr float kCeilingCoverageThreshold = 0.625f;
 } // namespace
 
 Weather::Weather()
@@ -33,6 +40,45 @@ core::WindReading Weather::QueryWindAt(double latDeg, double lonDeg, double altM
     reading.direction_true_deg = info.wind_dir_alt;
     reading.has_station_match = (foundStationData == 1);
     reading.pressure_pa = info.pressure_alt;
+
+    // Both of these feed apt.dat flow rules 1002/1003. Anything we can't
+    // measure is left at the struct's unrestricted default rather than 0, so a
+    // missing reading can never wrongly disqualify a flow.
+    if (info.visibility > 0.0f) {
+        reading.visibility_sm = info.visibility * kMetersToSm;
+    }
+    // XPLMWeatherInfoClouds_t::alt_base is documented MSL, but apt.dat row 1002
+    // is a ceiling ABOVE FIELD ELEVATION, so the layer base is reported
+    // relative to the altitude this query was made at. Callers wanting a
+    // ceiling for flow rules must therefore query at field elevation, which
+    // Plugin.cpp does. Getting this wrong is invisible at a sea-level airport
+    // and badly wrong at a high one: at KDEN (5,434ft) an overcast layer 400ft
+    // above the runway would otherwise read as a 5,900ft ceiling and clear any
+    // low-visibility gate.
+    // "Found a layer" is tracked separately rather than by a negative sentinel:
+    // subtracting the query altitude means a real layer at or below field
+    // elevation legitimately produces a negative height, which a sentinel would
+    // swallow as "no ceiling" and leave unrestricted -- the exact inversion of
+    // what fog on the field means.
+    bool haveCeiling = false;
+    double lowestCeilingFt = 0.0;
+    for (const auto& layer : info.cloud_layers) {
+        if (layer.coverage < kCeilingCoverageThreshold) {
+            continue;
+        }
+        const double baseFt = (layer.alt_base - altM) * kMetersToFt;
+        if (!haveCeiling || baseFt < lowestCeilingFt) {
+            lowestCeilingFt = baseFt;
+            haveCeiling = true;
+        }
+    }
+    if (haveCeiling) {
+        // Clamped at 0 rather than left negative: "ceiling at or below the
+        // field" fails every non-zero minimum either way, but a negative reads
+        // as a bug in the log.
+        reading.ceiling_ft = lowestCeilingFt < 0.0 ? 0.0 : lowestCeilingFt;
+    }
+
     return reading;
 }
 

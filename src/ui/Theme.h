@@ -19,6 +19,7 @@ constexpr unsigned int Rgba(unsigned char r, unsigned char g, unsigned char b, u
 // Packed ABGR (ImGui's native color format).
 constexpr unsigned int kColorConfirmed = 0xFF3CC83C;    // green: real, traffic-confirmed runway
 constexpr unsigned int kColorWindEstimate = 0xFF28AAE6; // amber: wind-based guess only
+constexpr unsigned int kColorSimFlow = 0xFFC8C83C;      // teal: X-Plane's own ATC flow rules, stronger than a wind guess
 constexpr unsigned int kColorWaiting = 0xFF8C8C8C;      // dim gray: history / no data yet
 // Sky blue -- distinct from the status colors above (wind confidence is a
 // different axis from runway status). Also doubles as the general chrome
@@ -92,10 +93,11 @@ constexpr const char* kIconDisplaySection = "\xEF\x8E\x90"; // f390 desktop
 constexpr const char* kIconSearchSection = "\xEF\x80\x82";  // f002 magnifying-glass
 constexpr const char* kIconStartupSection = "\xEF\x80\x91"; // f011 power-off
 constexpr const char* kIconArrowRight = "\xEF\x81\xA1";      // f061 arrow-right
+constexpr const char* kIconSimFlow = "\xEF\x81\x9A";        // f05a circle-info
 
-constexpr std::array<unsigned short, 17> kIconGlyphCodepoints = {
+constexpr std::array<unsigned short, 18> kIconGlyphCodepoints = {
     0xF058, 0xF059, 0xF017, 0xF72E, 0xF624, 0xF5B0, 0xF5AF, 0xF3C5, 0xF072, 0xF1DA,
-    0xF013, 0xF188, 0xF390, 0xF002, 0xF011, 0xF4D7, 0xF061,
+    0xF013, 0xF188, 0xF390, 0xF002, 0xF011, 0xF4D7, 0xF061, 0xF05A,
 };
 
 constexpr int kDefaultWindowWidth = 560;

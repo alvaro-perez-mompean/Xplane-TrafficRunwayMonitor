@@ -45,6 +45,63 @@ std::optional<double> TokenAsDouble(const std::vector<std::string>& tokens, size
     return value;
 }
 
+// "HHMM" (row 1004) -> minutes since 0000Z. nullopt on anything that isn't
+// four digits, rather than letting strtod's partial-parse turn "0800" into
+// something plausible-looking but wrong.
+std::optional<int> ParseHhmmToMinutes(const std::string& hhmm)
+{
+    if (hhmm.size() != 4) {
+        return std::nullopt;
+    }
+    for (const char c : hhmm) {
+        if (c < '0' || c > '9') {
+            return std::nullopt;
+        }
+    }
+    const int hours = (hhmm[0] - '0') * 10 + (hhmm[1] - '0');
+    const int minutes = (hhmm[2] - '0') * 10 + (hhmm[3] - '0');
+    if (minutes > 59) {
+        return std::nullopt;
+    }
+    return hours * 60 + minutes;
+}
+
+// Splits apt.dat's '|'-separated lists ("arrivals|departures",
+// "heavy|jets|props"). Empty segments are dropped.
+std::vector<std::string> SplitOnPipe(const std::string& field)
+{
+    std::vector<std::string> parts;
+    std::string current;
+    for (const char c : field) {
+        if (c == '|') {
+            if (!current.empty()) {
+                parts.push_back(current);
+            }
+            current.clear();
+        } else {
+            current += c;
+        }
+    }
+    if (!current.empty()) {
+        parts.push_back(current);
+    }
+    return parts;
+}
+
+// Everything from `firstToken` (1-indexed) to end of line, space-joined. Used
+// for free-text tails: the airport name on row 1 and the flow name on row 1000.
+std::string JoinFrom(const std::vector<std::string>& tokens, size_t firstOneIndexedPos)
+{
+    std::string joined;
+    for (std::size_t i = firstOneIndexedPos - 1; i < tokens.size(); ++i) {
+        if (!joined.empty()) {
+            joined += ' ';
+        }
+        joined += tokens[i];
+    }
+    return joined;
+}
+
 void ComputeReferencePoints(AirportDatabase& db)
 {
     for (auto& [icao, airport] : db) {
@@ -69,6 +126,7 @@ AirportDatabase ParseAptDat(std::istream& in)
 {
     AirportDatabase db;
     std::string currentIcao; // empty = no active airport context
+    int currentFlowIndex = -1; // -1 = no active row-1000 block
 
     std::string line;
     while (std::getline(in, line)) {
@@ -83,6 +141,7 @@ AirportDatabase ParseAptDat(std::istream& in)
             // token 2, airport name at token 6 onward (space-separated, may
             // itself contain spaces -- e.g. "Chicago O'Hare Intl").
             const auto icao = Token(tokens, 5);
+            currentFlowIndex = -1; // a new airport ends any open flow block
             if (icao) {
                 currentIcao = *icao;
                 auto [it, inserted] = db.try_emplace(currentIcao);
@@ -90,17 +149,25 @@ AirportDatabase ParseAptDat(std::istream& in)
                     it->second.icao = currentIcao;
                     it->second.elevation_ft = TokenAsDouble(tokens, 2).value_or(0.0);
                     if (tokens.size() > 5) {
-                        std::string name = tokens[5];
-                        for (std::size_t i = 6; i < tokens.size(); ++i) {
-                            name += ' ';
-                            name += tokens[i];
-                        }
-                        it->second.name = std::move(name);
+                        it->second.name = JoinFrom(tokens, 6);
                     }
                 }
             } else {
                 currentIcao.clear();
             }
+        } else if (rowCode == "16" || rowCode == "17") {
+            // Rows 16/17 (seaplane base / heliport headers). We don't model
+            // either, but they still END the previous land airport's block --
+            // without this, everything under them is silently attributed to
+            // whichever land airport came last in the file. Confirmed in the
+            // real global apt.dat: BGBW (Narsarsuaq, a row-17 heliport entry)
+            // directly follows K29 (Council, Alaska), so K29 would otherwise
+            // inherit BGBW's runway AND its three ATC flows, and claim an
+            // authored "sim ATC flow favors runway 06" gated on a Greenland
+            // wind rule. Same shape at LFRV<-LFPI and CA35<-XK00E1. Eight of
+            // the file's 4,994 flow blocks sit under row-16/17 headers.
+            currentIcao.clear();
+            currentFlowIndex = -1;
         } else if (rowCode == "100" && !currentIcao.empty()) {
             // Row 100 (land runway): width_m at token 2; end1 id/lat/lon at
             // tokens 9/10/11; end2 id/lat/lon at tokens 18/19/20. Heading and
@@ -123,6 +190,72 @@ AirportDatabase ParseAptDat(std::istream& in)
                 Airport& airport = db.at(currentIcao);
                 airport.runways.push_back(RunwayEnd{*id1, *lat1, *lon1, heading1, widthM, *id2, lengthFt});
                 airport.runways.push_back(RunwayEnd{*id2, *lat2, *lon2, heading2, widthM, *id1, lengthFt});
+            }
+        } else if (rowCode == "1000" && !currentIcao.empty()) {
+            // Row 1000 (traffic flow header): free-text name from token 2 on.
+            // Opens a block that rows 1001-1004 and 1100/1110 attach to, until
+            // the next row 1000 or the next airport.
+            Airport& airport = db.at(currentIcao);
+            TrafficFlow flow;
+            flow.name = JoinFrom(tokens, 2);
+            airport.flows.push_back(std::move(flow));
+            currentFlowIndex = static_cast<int>(airport.flows.size()) - 1;
+        } else if (currentFlowIndex >= 0 && !currentIcao.empty() &&
+                   (rowCode == "1001" || rowCode == "1002" || rowCode == "1003" || rowCode == "1004" ||
+                    rowCode == "1100" || rowCode == "1110")) {
+            TrafficFlow& flow = db.at(currentIcao).flows[static_cast<std::size_t>(currentFlowIndex)];
+
+            if (rowCode == "1001") {
+                // Row 1001 (wind rule): METAR station ICAO at token 2 (always
+                // this airport's own in observed data, so not stored),
+                // direction sector at tokens 3/4, max speed at token 5.
+                // Appended, never overwritten -- see TrafficFlow::wind_rules.
+                const auto dirMin = TokenAsDouble(tokens, 3);
+                const auto dirMax = TokenAsDouble(tokens, 4);
+                const auto maxSpeed = TokenAsDouble(tokens, 5);
+                if (dirMin && dirMax && maxSpeed) {
+                    flow.wind_rules.push_back(FlowWindRule{*dirMin, *dirMax, *maxSpeed});
+                }
+            } else if (rowCode == "1002") {
+                // Row 1002 (minimum ceiling, ft): station ICAO at token 2.
+                flow.min_ceiling_ft = TokenAsDouble(tokens, 3).value_or(0.0);
+            } else if (rowCode == "1003") {
+                // Row 1003 (minimum visibility, statute miles): station at token 2.
+                flow.min_visibility_sm = TokenAsDouble(tokens, 3).value_or(0.0);
+            } else if (rowCode == "1004") {
+                // Row 1004 (time rule): HHMM zulu start/end at tokens 2/3. No
+                // station ICAO on this row, unlike 1001-1003.
+                const auto start = Token(tokens, 2);
+                const auto end = Token(tokens, 3);
+                if (start && end) {
+                    const auto startMinutes = ParseHhmmToMinutes(*start);
+                    const auto endMinutes = ParseHhmmToMinutes(*end);
+                    if (startMinutes && endMinutes) {
+                        flow.time_rule = FlowTimeRule{*startMinutes, *endMinutes};
+                    }
+                }
+            } else {
+                // Row 1100/1110 (runway in use): runway at token 2, tower
+                // frequency at token 3 (unused), arrivals/departures at token
+                // 4, aircraft classes at token 5. Trailing heading ranges and
+                // optional rule name are unused -- see FlowRunwayUseRule.
+                const auto runwayId = Token(tokens, 2);
+                const auto operations = Token(tokens, 4);
+                if (runwayId && operations) {
+                    FlowRunwayUseRule rule;
+                    rule.runway_id = *runwayId;
+                    for (const std::string& op : SplitOnPipe(*operations)) {
+                        if (op == "arrivals") {
+                            rule.arrivals = true;
+                        } else if (op == "departures") {
+                            rule.departures = true;
+                        }
+                    }
+                    if (const auto classes = Token(tokens, 5)) {
+                        rule.aircraft_classes = SplitOnPipe(*classes);
+                    }
+                    flow.runway_use_rules.push_back(std::move(rule));
+                }
             }
         } else if (rowCode == "99") {
             break; // 99 marks end-of-file in apt.dat
